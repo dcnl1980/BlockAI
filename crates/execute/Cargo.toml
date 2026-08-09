@@ -8,9 +8,11 @@ license.workspace = true
 blockai-types = { path = "../types" }
 blockai-witness = { path = "../witness" }
 blockai-shard = { path = "../shard" }
+blockai-wasm = { path = "../wasm" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
 blockai-crypto = { path = "../crypto" }
 blockai-shard = { path = "../shard" }
+wat = "1"

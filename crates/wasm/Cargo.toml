@@ -1,0 +1,13 @@
+[package]
+name = "blockai-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+wasmtime = "28"
+wat = "1"
+blake3 = "1"
+
+[dev-dependencies]

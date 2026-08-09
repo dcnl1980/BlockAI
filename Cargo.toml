@@ -8,6 +8,7 @@ members = [
     "crates/witness",
     "crates/execute",
     "crates/consensus",
+    "crates/wasm",
     "crates/tools",
 ]
 

@@ -16,6 +16,10 @@ path = "src/bin/checkpoint_sim.rs"
 name = "l1_sim"
 path = "src/bin/l1_sim.rs"
 
+[[bin]]
+name = "wasm_sim"
+path = "src/bin/wasm_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
@@ -23,6 +27,8 @@ blockai-authority = { path = "../authority" }
 blockai-shard = { path = "../shard" }
 blockai-witness = { path = "../witness" }
 blockai-consensus = { path = "../consensus" }
+blockai-execute = { path = "../execute" }
+blockai-wasm = { path = "../wasm" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
