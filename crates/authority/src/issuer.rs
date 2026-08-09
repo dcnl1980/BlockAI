@@ -1,4 +1,5 @@
-use blockai_crypto::{sign_capability, Keypair};
+use blockai_attest::{verify_evidence, AttestationEvidence, AttestationPolicy, TestPlatform};
+use blockai_crypto::{seal_capability_hybrid, sign_capability, AlgorithmId, Keypair, PqKeypair};
 use blockai_types::{
     AccountId, AgentId, AmountMicros, CapabilityId, Epoch, Sequence, ShardId, SpendCapability,
 };
@@ -15,6 +16,10 @@ pub enum AuthorityError {
     InsufficientShardAllowance,
     #[error("unknown shard allocation")]
     UnknownShardAllocation,
+    #[error("attestation failed")]
+    AttestationFailed,
+    #[error("hybrid seal failed")]
+    HybridSealFailed,
 }
 
 #[derive(Clone, Debug)]
@@ -26,13 +31,18 @@ pub struct AccountFloat {
 
 pub struct Authority {
     issuer: Keypair,
+    issuer_pq: PqKeypair,
     accounts: HashMap<AccountId, AccountFloat>,
     outstanding: HashMap<CapabilityId, AmountMicros>,
     fenced_epochs: HashMap<ShardId, Epoch>,
     next_cap_counter: u64,
+    attest_policy: AttestationPolicy,
+    /// Retained so tests can mint passing evidence for this authority instance.
+    test_platform: Option<TestPlatform>,
+    hybrid_issue: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IssueRequest {
     pub account_id: AccountId,
     pub agent_id: AgentId,
@@ -51,13 +61,25 @@ pub struct IssueRequest {
 
 impl Authority {
     pub fn new_for_tests() -> Self {
+        let test_platform = TestPlatform::new();
         Self {
             issuer: Keypair::generate(),
+            issuer_pq: PqKeypair::generate(),
             accounts: HashMap::new(),
             outstanding: HashMap::new(),
             fenced_epochs: HashMap::new(),
             next_cap_counter: 1,
+            attest_policy: test_platform.policy.clone(),
+            test_platform: Some(test_platform),
+            hybrid_issue: true,
         }
+    }
+
+    pub fn passing_attestation(&self) -> AttestationEvidence {
+        self.test_platform
+            .as_ref()
+            .expect("test platform")
+            .evidence()
     }
 
     pub fn issuer_verifying_key_bytes(&self) -> [u8; 32] {
@@ -105,7 +127,11 @@ impl Authority {
     pub fn issue_capability(
         &mut self,
         req: IssueRequest,
+        evidence: &AttestationEvidence,
     ) -> Result<SpendCapability, AuthorityError> {
+        verify_evidence(&self.attest_policy, evidence)
+            .map_err(|_| AuthorityError::AttestationFailed)?;
+
         let float = self
             .accounts
             .get_mut(&req.account_id)
@@ -144,10 +170,18 @@ impl Authority {
             valid_from_unix_ms: req.now_unix_ms,
             valid_until_unix_ms: req.now_unix_ms.saturating_add(req.ttl_ms),
             region: req.region,
+            issuer_alg: AlgorithmId::Ed25519.as_u16(),
             issuer_pubkey: self.issuer.verifying_key_bytes(),
             issuer_signature: vec![],
+            issuer_pq_pubkey: vec![],
+            issuer_pq_signature: vec![],
         };
-        cap.issuer_signature = sign_capability(&self.issuer, &cap);
+        if self.hybrid_issue {
+            seal_capability_hybrid(&self.issuer, &self.issuer_pq, &mut cap)
+                .map_err(|_| AuthorityError::HybridSealFailed)?;
+        } else {
+            cap.issuer_signature = sign_capability(&self.issuer, &cap);
+        }
         self.outstanding.insert(capability_id, req.maximum_total);
         Ok(cap)
     }

@@ -8,6 +8,8 @@ Secure Economic Execution Fabric (SEEF) — from-scratch Rust L1 + agent micropa
 - Plan 1: `docs/superpowers/plans/2026-08-09-seef-authorization-core.md`
 - Plan 2: `docs/superpowers/plans/2026-08-09-seef-checkpoints-witnesses.md`
 - Plan 3: `docs/superpowers/plans/2026-08-09-seef-global-l1.md`
+- Plan 4: `docs/superpowers/plans/2026-08-09-seef-wasm-registry.md`
+- Plan 5: `docs/superpowers/plans/2026-08-09-seef-quic-attest-pq.md`
 
 ## Develop
 
@@ -16,4 +18,7 @@ cargo test
 cargo run -p blockai-tools --bin pay_sim -- --pays 50
 cargo run -p blockai-tools --bin checkpoint_sim -- --pays 2
 cargo run -p blockai-tools --bin l1_sim -- --exposure 10
+cargo run -p blockai-tools --bin wasm_sim -- --a 2 --b 40
+cargo run -p blockai-tools --bin quic_sim -- --amount 1
+cargo bench -p blockai-shard --bench pay_authorize
 ```

@@ -20,6 +20,7 @@ async fn pay_receipt_checkpoint_witness_merkle_path() {
     auth.fund(account, AmountMicros(100)).unwrap();
     auth.allocate(account, shard.clone(), AmountMicros(50))
         .unwrap();
+    let __evidence = auth.passing_attestation();
     let cap = auth
         .issue_capability(IssueRequest {
             account_id: account,
@@ -35,7 +36,7 @@ async fn pay_receipt_checkpoint_witness_merkle_path() {
             ttl_ms: 60_000,
             region: "EU".into(),
             now_unix_ms: 1_000,
-        })
+        }, &__evidence)
         .unwrap();
 
     let cluster = cluster4_with_issuer_bytes(shard.clone(), auth.issuer_signing_bytes_for_tests()).await;

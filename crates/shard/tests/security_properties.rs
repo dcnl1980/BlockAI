@@ -16,6 +16,7 @@ fn fund_issue(
     auth.fund(account, AmountMicros(100)).unwrap();
     auth.allocate(account, shard.clone(), AmountMicros(20))
         .unwrap();
+    let __evidence = auth.passing_attestation();
     auth.issue_capability(IssueRequest {
         account_id: account,
         agent_id: agent,
@@ -30,7 +31,7 @@ fn fund_issue(
         ttl_ms: 60_000,
         region: "EU".into(),
         now_unix_ms: 1_000,
-    })
+    }, &__evidence)
     .unwrap()
 }
 

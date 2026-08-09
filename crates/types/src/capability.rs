@@ -18,8 +18,20 @@ pub struct SpendCapability {
     pub valid_from_unix_ms: u64,
     pub valid_until_unix_ms: u64,
     pub region: String,
+    /// See `blockai_crypto::AlgorithmId` (`1` = Ed25519, `3` = hybrid Ed25519+ML-DSA-65).
+    #[serde(default = "default_issuer_alg")]
+    pub issuer_alg: u16,
     pub issuer_pubkey: [u8; 32],
     pub issuer_signature: Vec<u8>,
+    /// ML-DSA-65 verifying key bytes when `issuer_alg` is hybrid; empty otherwise.
+    #[serde(default)]
+    pub issuer_pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub issuer_pq_signature: Vec<u8>,
+}
+
+fn default_issuer_alg() -> u16 {
+    1 // Ed25519
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
