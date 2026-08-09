@@ -195,6 +195,7 @@ impl GlobalState {
                     .ok_or(ExecuteError::UnknownAccount)?;
                 let slash = amount.0.min(acc.stake.0);
                 acc.stake.0 -= slash;
+                // burned from supply (penalty)
                 self.total_supply.0 = self.total_supply.0.saturating_sub(slash);
                 self.events.push(format!(
                     "SlashConflict {} epoch={} height={} amount={}",
@@ -418,6 +419,10 @@ impl GlobalState {
         }
         outstanding.0 -= h.exposure.0;
 
+        // Settlement credit: exposure moves back to funding available as settled spend
+        // accounting — for Plan 3 we treat exposure as consumed (burned from outstanding
+        // into a locked settlement sink owned by the funding account's locked bucket
+        // representing "spent to services").
         let acc = self
             .accounts
             .get_mut(&funding_account)
