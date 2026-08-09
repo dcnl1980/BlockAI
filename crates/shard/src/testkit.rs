@@ -6,7 +6,7 @@ use ed25519_dalek::VerifyingKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 use tokio::task::JoinHandle;
 
 pub struct Cluster4 {
@@ -56,10 +56,12 @@ pub async fn cluster4_with_issuer_bytes(shard: ShardId, issuer_signing_bytes: [u
 
     let mut senders: HashMap<u8, mpsc::UnboundedSender<BftMessage>> = HashMap::new();
     let mut receivers: HashMap<u8, mpsc::UnboundedReceiver<BftMessage>> = HashMap::new();
+    let mut notifies: HashMap<u8, Arc<Notify>> = HashMap::new();
     for i in 0..4u8 {
         let (tx, rx) = mpsc::unbounded_channel();
         senders.insert(i, tx);
         receivers.insert(i, rx);
+        notifies.insert(i, Arc::new(Notify::new()));
     }
 
     let mut engines = Vec::new();
@@ -70,6 +72,11 @@ pub async fn cluster4_with_issuer_bytes(shard: ShardId, issuer_signing_bytes: [u
                 outboxes.insert(*peer, tx.clone());
             }
         }
+        let peer_notifies = notifies
+            .iter()
+            .filter(|(id, _)| **id != i)
+            .map(|(id, n)| (*id, n.clone()))
+            .collect();
         let cfg = ValidatorConfig {
             id: i,
             shard_id: shard.clone(),
@@ -83,7 +90,15 @@ pub async fn cluster4_with_issuer_bytes(shard: ShardId, issuer_signing_bytes: [u
         };
         let rx = receivers.remove(&i).expect("rx");
         let wal_path = dir.path().join(format!("v{i}.wal"));
-        let eng = open_engine(cfg, wal_path, rx, outboxes).expect("open engine");
+        let eng = open_engine(
+            cfg,
+            wal_path,
+            rx,
+            outboxes,
+            peer_notifies,
+            notifies[&i].clone(),
+        )
+        .expect("open engine");
         engines.push(Arc::new(eng));
     }
 
@@ -93,8 +108,7 @@ pub async fn cluster4_with_issuer_bytes(shard: ShardId, issuer_signing_bytes: [u
     for eng in engines.iter().skip(1).cloned() {
         pumps.push(tokio::spawn(async move {
             loop {
-                let _ = eng.pump().await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+                let _ = eng.wait_and_pump().await;
             }
         }));
     }
