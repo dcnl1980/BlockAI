@@ -1,0 +1,16 @@
+[package]
+name = "blockai-execute"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+blockai-types = { path = "../types" }
+blockai-witness = { path = "../witness" }
+blockai-shard = { path = "../shard" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+blockai-crypto = { path = "../crypto" }
+blockai-shard = { path = "../shard" }

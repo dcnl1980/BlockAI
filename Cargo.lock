@@ -110,6 +110,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "blockai-consensus"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "blockai-crypto",
+ "blockai-execute",
+ "blockai-shard",
+ "blockai-types",
+ "blockai-witness",
+ "ciborium",
+ "ed25519-dalek",
+ "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "blockai-crypto"
 version = "0.1.0"
 dependencies = [
@@ -118,6 +135,18 @@ dependencies = [
  "ciborium",
  "ed25519-dalek",
  "rand",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "blockai-execute"
+version = "0.1.0"
+dependencies = [
+ "blockai-crypto",
+ "blockai-shard",
+ "blockai-types",
+ "blockai-witness",
  "serde",
  "thiserror",
 ]
@@ -144,6 +173,7 @@ name = "blockai-tools"
 version = "0.1.0"
 dependencies = [
  "blockai-authority",
+ "blockai-consensus",
  "blockai-crypto",
  "blockai-shard",
  "blockai-types",
