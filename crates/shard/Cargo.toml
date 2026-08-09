@@ -17,3 +17,4 @@ tempfile = "3"
 
 [dev-dependencies]
 blockai-authority = { path = "../authority" }
+blockai-witness = { path = "../witness" }

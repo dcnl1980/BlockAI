@@ -1,0 +1,13 @@
+[package]
+name = "blockai-witness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+blockai-types = { path = "../types" }
+blockai-crypto = { path = "../crypto" }
+blockai-shard = { path = "../shard" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+ed25519-dalek = { version = "2", features = ["rand_core"] }

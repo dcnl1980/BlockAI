@@ -8,10 +8,16 @@ license.workspace = true
 name = "pay_sim"
 path = "src/bin/pay_sim.rs"
 
+[[bin]]
+name = "checkpoint_sim"
+path = "src/bin/checkpoint_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
 blockai-authority = { path = "../authority" }
 blockai-shard = { path = "../shard" }
+blockai-witness = { path = "../witness" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 clap = { version = "4", features = ["derive"] }
+hex = "0.4"
