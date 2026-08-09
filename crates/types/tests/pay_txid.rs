@@ -20,8 +20,11 @@ fn sample_cap() -> SpendCapability {
         valid_from_unix_ms: 0,
         valid_until_unix_ms: 9_999_999_999,
         region: "EU".into(),
+        issuer_alg: 1,
         issuer_pubkey: [7u8; 32],
         issuer_signature: vec![0u8; 64],
+        issuer_pq_pubkey: vec![],
+        issuer_pq_signature: vec![],
     }
 }
 

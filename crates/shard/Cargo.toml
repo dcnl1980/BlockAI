@@ -18,3 +18,8 @@ tempfile = "3"
 [dev-dependencies]
 blockai-authority = { path = "../authority" }
 blockai-witness = { path = "../witness" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "pay_authorize"
+harness = false

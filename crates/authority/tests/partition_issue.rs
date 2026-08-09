@@ -20,6 +20,7 @@ fn issued_capability_is_shard_bound_and_signed() {
     auth.fund(account, AmountMicros(100)).unwrap();
     let fra = ShardId::new("FRA-004").unwrap();
     auth.allocate(account, fra.clone(), AmountMicros(20)).unwrap();
+    let __evidence = auth.passing_attestation();
     let cap = auth
         .issue_capability(IssueRequest {
             account_id: account,
@@ -35,7 +36,7 @@ fn issued_capability_is_shard_bound_and_signed() {
             ttl_ms: 60_000,
             region: "EU".into(),
             now_unix_ms: 1_000,
-        })
+        }, &__evidence)
         .unwrap();
     assert_eq!(cap.shard_id, fra);
     assert_eq!(cap.maximum_total, AmountMicros(20));

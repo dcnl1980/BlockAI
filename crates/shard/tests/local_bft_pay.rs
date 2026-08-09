@@ -15,6 +15,7 @@ async fn three_of_four_commits_pay_before_accept() {
     auth.fund(account, AmountMicros(100)).unwrap();
     auth.allocate(account, shard.clone(), AmountMicros(20))
         .unwrap();
+    let __evidence = auth.passing_attestation();
     let cap = auth
         .issue_capability(IssueRequest {
             account_id: account,
@@ -30,7 +31,7 @@ async fn three_of_four_commits_pay_before_accept() {
             ttl_ms: 60_000,
             region: "EU".into(),
             now_unix_ms: 1_000,
-        })
+        }, &__evidence)
         .unwrap();
 
     let cluster = cluster4_with_issuer_bytes(shard, auth.issuer_signing_bytes_for_tests()).await;

@@ -26,6 +26,7 @@ async fn main() {
     auth.fund(account, AmountMicros(1_000_000)).unwrap();
     auth.allocate(account, shard.clone(), AmountMicros(1_000_000))
         .unwrap();
+    let __evidence = auth.passing_attestation();
     let cap = auth
         .issue_capability(IssueRequest {
             account_id: account,
@@ -41,7 +42,7 @@ async fn main() {
             ttl_ms: 600_000,
             region: "EU".into(),
             now_unix_ms: 1_000,
-        })
+        }, &__evidence)
         .unwrap();
 
     let cluster = cluster4_with_issuer_bytes(shard.clone(), auth.issuer_signing_bytes_for_tests()).await;

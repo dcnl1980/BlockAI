@@ -3,12 +3,14 @@ resolver = "2"
 members = [
     "crates/types",
     "crates/crypto",
+    "crates/attest",
     "crates/authority",
     "crates/shard",
     "crates/witness",
     "crates/execute",
     "crates/consensus",
     "crates/wasm",
+    "crates/net",
     "crates/tools",
 ]
 
