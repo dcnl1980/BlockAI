@@ -220,8 +220,11 @@ name = "blockai-consensus"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "blockai-attest",
+ "blockai-authority",
  "blockai-crypto",
  "blockai-execute",
+ "blockai-net",
  "blockai-shard",
  "blockai-types",
  "blockai-witness",

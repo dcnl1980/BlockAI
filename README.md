@@ -20,5 +20,6 @@ cargo run -p blockai-tools --bin checkpoint_sim -- --pays 2
 cargo run -p blockai-tools --bin l1_sim -- --exposure 10
 cargo run -p blockai-tools --bin wasm_sim -- --a 2 --b 40
 cargo run -p blockai-tools --bin quic_sim -- --amount 1
+cargo run -p blockai-tools --bin seef_sim -- --amount 10
 cargo bench -p blockai-shard --bench pay_authorize
 ```

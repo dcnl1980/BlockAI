@@ -8,7 +8,8 @@ use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use std::time::Duration;
+use tokio::sync::{mpsc, Mutex, Notify};
 
 #[derive(Clone, Debug)]
 pub struct EdgeAccept {
@@ -33,12 +34,14 @@ struct Inner {
     alive: bool,
     inbox: mpsc::UnboundedReceiver<BftMessage>,
     outboxes: HashMap<u8, mpsc::UnboundedSender<BftMessage>>,
+    peer_notifies: HashMap<u8, Arc<Notify>>,
 }
 
 pub struct ShardEngine {
     inner: Arc<Mutex<Inner>>,
     shard_id: ShardId,
     id: u8,
+    notify: Arc<Notify>,
 }
 
 impl ShardEngine {
@@ -128,7 +131,7 @@ impl ShardEngine {
                 }
             }
             drop(inner);
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            self.wait_for_peer_message().await;
         }
         Ok(())
     }
@@ -204,7 +207,9 @@ impl ShardEngine {
                 }
             }
             drop(inner);
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            if votes.len() < need {
+                self.wait_for_peer_message().await;
+            }
         }
 
         let vote_vec: Vec<(u8, Vec<u8>)> = votes.into_iter().collect();
@@ -253,7 +258,9 @@ impl ShardEngine {
                 }
             }
             drop(inner);
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            if acks.len() < need {
+                self.wait_for_peer_message().await;
+            }
         }
 
         let inner = self.inner.lock().await;
@@ -282,9 +289,25 @@ impl ShardEngine {
         Ok(())
     }
 
+    /// Wait for a peer wakeup (or a short safety timeout), then pump inbox.
+    pub async fn wait_and_pump(&self) -> Result<(), ShardError> {
+        self.wait_for_peer_message().await;
+        self.pump().await
+    }
+
+    async fn wait_for_peer_message(&self) {
+        tokio::select! {
+            _ = self.notify.notified() => {}
+            _ = tokio::time::sleep(Duration::from_millis(5)) => {}
+        }
+    }
+
     fn broadcast(inner: &Inner, msg: BftMessage) {
-        for tx in inner.outboxes.values() {
+        for (peer, tx) in &inner.outboxes {
             let _ = tx.send(msg.clone());
+            if let Some(n) = inner.peer_notifies.get(peer) {
+                n.notify_one();
+            }
         }
     }
 
@@ -488,6 +511,8 @@ pub fn open_engine(
     wal_path: impl AsRef<Path>,
     inbox: mpsc::UnboundedReceiver<BftMessage>,
     outboxes: HashMap<u8, mpsc::UnboundedSender<BftMessage>>,
+    peer_notifies: HashMap<u8, Arc<Notify>>,
+    notify: Arc<Notify>,
 ) -> Result<ShardEngine, ShardError> {
     let wal = Wal::open(wal_path)?;
     let state = wal.replay()?;
@@ -502,8 +527,10 @@ pub fn open_engine(
             alive: true,
             inbox,
             outboxes,
+            peer_notifies,
         })),
         shard_id,
         id,
+        notify,
     })
 }

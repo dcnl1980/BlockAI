@@ -24,6 +24,10 @@ path = "src/bin/wasm_sim.rs"
 name = "quic_sim"
 path = "src/bin/quic_sim.rs"
 
+[[bin]]
+name = "seef_sim"
+path = "src/bin/seef_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
