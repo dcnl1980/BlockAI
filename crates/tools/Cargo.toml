@@ -1,0 +1,17 @@
+[package]
+name = "blockai-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pay_sim"
+path = "src/bin/pay_sim.rs"
+
+[dependencies]
+blockai-types = { path = "../types" }
+blockai-crypto = { path = "../crypto" }
+blockai-authority = { path = "../authority" }
+blockai-shard = { path = "../shard" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+clap = { version = "4", features = ["derive"] }

@@ -1,0 +1,11 @@
+[package]
+name = "blockai-authority"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+blockai-types = { path = "../types" }
+blockai-crypto = { path = "../crypto" }
+thiserror = { workspace = true }
+blake3 = "1"
