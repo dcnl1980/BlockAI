@@ -1,5 +1,9 @@
 pub mod bft;
+pub mod checkpoint;
 pub mod engine;
+pub mod merkle;
+pub mod payment;
+pub mod receipt_log;
 pub mod state;
 pub mod testkit;
 pub mod wal;
@@ -9,6 +13,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ShardError {
+    #[error("empty receipt log")]
+    EmptyReceiptLog,
     #[error("unknown capability")]
     UnknownCapability,
     #[error("REPLAY capability={capability_id:?} epoch={epoch:?} sequence={sequence:?}")]
@@ -66,6 +72,10 @@ pub enum ShardError {
     Cbor,
 }
 
+pub use checkpoint::{verify_signed_checkpoint, CheckpointSealer};
 pub use engine::{EdgeAccept, ShardEngine};
+pub use merkle::{merkle_proof, merkle_root, verify_merkle_proof, MerkleProof};
+pub use payment::complete_payment_proof;
+pub use receipt_log::ReceiptLog;
 pub use state::ShardState;
 pub use wal::{Wal, WalRecord};

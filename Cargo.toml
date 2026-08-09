@@ -5,6 +5,7 @@ members = [
     "crates/crypto",
     "crates/authority",
     "crates/shard",
+    "crates/witness",
     "crates/tools",
 ]
 
