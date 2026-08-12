@@ -43,6 +43,8 @@ pub fn complete_payment_proof(
         tx_id: edge_accept.tx_id,
         edge_pubkey: edge_kp.verifying_key_bytes(),
         edge_signature: vec![],
+        edge_pq_pubkey: vec![],
+        edge_pq_signature: vec![],
     };
     edge.edge_signature = sign_edge_acceptance(edge_kp, &edge);
     let edge_accept_hash = hash_cbor(&edge).map_err(|_| ShardError::Cbor)?;
@@ -53,6 +55,8 @@ pub fn complete_payment_proof(
         actual_amount,
         service_pubkey: service_kp.verifying_key_bytes(),
         service_signature: vec![],
+        service_pq_pubkey: vec![],
+        service_pq_signature: vec![],
     };
     service.service_signature = sign_service_receipt(service_kp, &service);
 

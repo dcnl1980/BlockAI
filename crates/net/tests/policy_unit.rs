@@ -18,6 +18,7 @@ fn sample_pay() -> Pay {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999,
         agent_signature: vec![0u8; 64],
+        ..Default::default()
     }
 }
 
