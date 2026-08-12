@@ -1,6 +1,8 @@
+mod market;
+
 use blockai_types::{
     Account, AccountId, AgentId, AmountMicros, Asset, AssetId, AssetUnits, Dispute, DisputeStatus,
-    L1Tx, WitnessedCheckpoint,
+    L1Tx, Order, OrderId, TradeFill, WitnessedCheckpoint,
 };
 use blockai_wasm::{code_hash, WasmRuntime};
 use blockai_witness::verify_witnessed;
@@ -62,6 +64,16 @@ pub enum ExecuteError {
     AssetConservationBroken,
     #[error("self trade forbidden")]
     SelfTrade,
+    #[error("order already exists")]
+    OrderExists,
+    #[error("unknown order")]
+    UnknownOrder,
+    #[error("order not open")]
+    OrderNotOpen,
+    #[error("not order owner")]
+    NotOrderOwner,
+    #[error("escrow overflow")]
+    EscrowOverflow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +99,13 @@ pub struct GlobalState {
     pub asset_symbols: HashMap<String, AssetId>,
     /// Holdings keyed by (account, asset_id).
     pub holdings: HashMap<(AccountId, AssetId), AssetUnits>,
+    pub orders: HashMap<OrderId, Order>,
+    /// EURC micros locked for buy orders.
+    pub order_cash_escrow: HashMap<OrderId, u128>,
+    /// Asset units locked for sell orders.
+    pub order_asset_escrow: HashMap<OrderId, (AssetId, AssetUnits)>,
+    pub fills: Vec<TradeFill>,
+    pub next_order_seq: u64,
     pub last_call_result: Option<i32>,
     pub min_witnesses: usize,
     pub default_fuel: u64,
@@ -114,7 +133,7 @@ impl GlobalState {
             .filter(|d| d.status == DisputeStatus::Open)
             .map(|d| d.bond.0)
             .sum();
-        AmountMicros(account_locked + dispute_bonds)
+        AmountMicros(account_locked + dispute_bonds + self.order_cash_escrow_sum().0)
     }
 
     pub fn available_sum(&self) -> AmountMicros {
@@ -145,20 +164,21 @@ impl GlobalState {
 
     pub fn check_asset_conservation(&self) -> Result<(), ExecuteError> {
         for (asset_id, asset) in &self.assets {
-            let sum: AssetUnits = self
+            let held: AssetUnits = self
                 .holdings
                 .iter()
                 .filter(|((_, id), _)| id == asset_id)
                 .map(|(_, u)| *u)
                 .sum();
-            if sum != asset.minted || asset.minted > asset.max_supply {
+            let escrowed = self.asset_escrow_units(*asset_id);
+            if held + escrowed != asset.minted || asset.minted > asset.max_supply {
                 return Err(ExecuteError::AssetConservationBroken);
             }
         }
         Ok(())
     }
 
-    fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
+    pub(crate) fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
         let acc = self
             .accounts
             .get(account)
@@ -169,12 +189,12 @@ impl GlobalState {
         Ok(())
     }
 
-    fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
+    pub(crate) fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
         let entry = self.holdings.entry((account, asset_id)).or_insert(0);
         *entry = entry.saturating_add(units);
     }
 
-    fn debit_holding(
+    pub(crate) fn debit_holding(
         &mut self,
         account: AccountId,
         asset_id: AssetId,
@@ -598,6 +618,19 @@ impl GlobalState {
                     "SpotTrade asset={} units={} price={} buyer={} seller={}",
                     asset_id.0[0], asset_units, price_total.0, buyer.0[0], seller.0[0]
                 ));
+            }
+            L1Tx::PlaceLimitOrder {
+                order_id,
+                asset_id,
+                trader,
+                side,
+                price,
+                units,
+            } => {
+                self.place_limit_order(*order_id, *asset_id, *trader, *side, *price, *units)?;
+            }
+            L1Tx::CancelOrder { order_id, trader } => {
+                self.cancel_order(*order_id, *trader)?;
             }
         }
         self.check_conservation()?;
