@@ -28,6 +28,10 @@ path = "src/bin/quic_sim.rs"
 name = "seef_sim"
 path = "src/bin/seef_sim.rs"
 
+[[bin]]
+name = "trade_sim"
+path = "src/bin/trade_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
@@ -38,6 +42,7 @@ blockai-consensus = { path = "../consensus" }
 blockai-execute = { path = "../execute" }
 blockai-wasm = { path = "../wasm" }
 blockai-net = { path = "../net" }
+blake3 = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
