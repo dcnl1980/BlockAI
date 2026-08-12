@@ -1,7 +1,7 @@
 use crate::merkle::merkle_root;
 use crate::receipt_log::ReceiptLog;
 use crate::ShardError;
-use blockai_crypto::Keypair;
+use blockai_crypto::{seal_checkpoint_pq, verify_checkpoint_pq, Keypair, PqKeypair};
 use blockai_types::{
     encode_cbor, AmountMicros, CheckpointHeader, Epoch, ShardId, SignedCheckpoint,
 };
@@ -53,6 +53,18 @@ impl CheckpointSealer {
         epoch: Epoch,
         now_unix_ms: u64,
     ) -> Result<SignedCheckpoint, ShardError> {
+        self.force_seal_with_pq(log, shard_kp, None, shard_id, epoch, now_unix_ms)
+    }
+
+    pub fn force_seal_with_pq(
+        &mut self,
+        log: &mut ReceiptLog,
+        shard_kp: &Keypair,
+        shard_pq: Option<&PqKeypair>,
+        shard_id: ShardId,
+        epoch: Epoch,
+        now_unix_ms: u64,
+    ) -> Result<SignedCheckpoint, ShardError> {
         if log.is_empty() {
             return Err(ShardError::EmptyReceiptLog);
         }
@@ -67,10 +79,18 @@ impl CheckpointSealer {
             sealed_at_unix_ms: now_unix_ms,
         };
         let sig = sign_checkpoint(shard_kp, &header)?;
+        let classical_pk = shard_kp.verifying_key_bytes();
+        let (shard_pq_pubkey, shard_pq_signature) = if let Some(pq) = shard_pq {
+            seal_checkpoint_pq(classical_pk, pq, &header).map_err(|_| ShardError::BadSignature)?
+        } else {
+            (vec![], vec![])
+        };
         let signed = SignedCheckpoint {
             header,
-            shard_signer_pubkey: shard_kp.verifying_key_bytes(),
+            shard_signer_pubkey: classical_pk,
             shard_signature: sig,
+            shard_pq_pubkey,
+            shard_pq_signature,
         };
         self.next_height += 1;
         log.clear_sealed();
@@ -127,5 +147,9 @@ pub fn verify_signed_checkpoint(
         .try_into()
         .map_err(|_| ShardError::BadSignature)?;
     vk.verify(&bytes, &Signature::from_bytes(&sig_bytes))
-        .map_err(|_| ShardError::BadSignature)
+        .map_err(|_| ShardError::BadSignature)?;
+    if !checkpoint.shard_pq_pubkey.is_empty() || !checkpoint.shard_pq_signature.is_empty() {
+        verify_checkpoint_pq(checkpoint).map_err(|_| ShardError::BadSignature)?;
+    }
+    Ok(())
 }

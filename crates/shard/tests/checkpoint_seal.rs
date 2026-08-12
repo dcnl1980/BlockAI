@@ -30,6 +30,7 @@ fn seals_after_two_payments_with_correct_counts() {
             pricing_schedule_version: 1,
             expiry_unix_ms: 9_999_999_999,
             agent_signature: vec![4u8; 64],
+        ..Default::default()
         };
         let edge = EdgeAccept {
             commit_index: i,

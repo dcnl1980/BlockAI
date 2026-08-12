@@ -1,5 +1,6 @@
 use crate::{
-    AccountId, AgentId, AmountMicros, AssetId, AssetUnits, Epoch, ShardId, WitnessedCheckpoint,
+    AccountId, AgentId, AmountMicros, AssetId, AssetUnits, Epoch, OrderId, ShardId, Side,
+    WitnessedCheckpoint,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +38,13 @@ pub enum L1Tx {
     AllocateShardAllowance {
         account: AccountId,
         shard_id: ShardId,
+        amount: AmountMicros,
+    },
+    /// FastPay regional settle: move shard outstanding between shards (conserves supply).
+    ReallocateShardOutstanding {
+        account: AccountId,
+        from_shard: ShardId,
+        to_shard: ShardId,
         amount: AmountMicros,
     },
     /// Apply a witnessed shard checkpoint: burns `exposure` from shard outstanding allowance.
@@ -119,6 +127,36 @@ pub enum L1Tx {
         seller: AccountId,
         asset_units: AssetUnits,
         price_total: AmountMicros,
+    },
+    /// Place a limit order on the Asset↔EURC book (may match immediately).
+    PlaceLimitOrder {
+        order_id: OrderId,
+        asset_id: AssetId,
+        trader: AccountId,
+        side: Side,
+        /// Limit price per unit (EURC micros).
+        price: AmountMicros,
+        units: AssetUnits,
+    },
+    CancelOrder {
+        order_id: OrderId,
+        trader: AccountId,
+    },
+    SetAssetFrozen {
+        asset_id: AssetId,
+        issuer: AccountId,
+        frozen: bool,
+    },
+    SetAssetAllowlistEnabled {
+        asset_id: AssetId,
+        issuer: AccountId,
+        enabled: bool,
+    },
+    SetAssetAllowlistMember {
+        asset_id: AssetId,
+        issuer: AccountId,
+        account: AccountId,
+        allowed: bool,
     },
 }
 

@@ -74,6 +74,7 @@ async fn main() {
             pricing_schedule_version: 1,
             expiry_unix_ms: 9_999_999_999,
             agent_signature: vec![],
+        ..Default::default()
         };
         pay.agent_signature = sign_pay(&agent_kp, &pay);
         let accept = cluster

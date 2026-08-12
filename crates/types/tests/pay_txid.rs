@@ -45,6 +45,7 @@ fn tx_id_changes_when_sequence_changes() {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999_999_999,
         agent_signature: vec![1u8; 64],
+    ..Default::default()
     };
     let a = tx_id(&pay);
     pay.sequence = Sequence(101);
@@ -69,6 +70,7 @@ fn tx_id_includes_request_hash() {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999_999_999,
         agent_signature: vec![1u8; 64],
+    ..Default::default()
     };
     let a = tx_id(&pay);
     pay.request_hash = [8u8; 32];
