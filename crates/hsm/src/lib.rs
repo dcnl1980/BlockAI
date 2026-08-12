@@ -45,6 +45,29 @@ pub struct ThresholdSignature {
     pub shares: Vec<ShareSig>,
 }
 
+/// Offline ceremony export for ops / audit (production HSM seam).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CeremonyTranscript {
+    pub share_pubkeys: Vec<[u8; 32]>,
+    pub quorum: usize,
+    pub hybrid: bool,
+    pub created_unix_ms: u64,
+    /// BLAKE3 over sorted share pubkeys || quorum || hybrid flag.
+    pub root_commitment: [u8; 32],
+}
+
+pub fn ceremony_root_commitment(share_pubkeys: &[[u8; 32]], quorum: usize, hybrid: bool) -> [u8; 32] {
+    let mut keys = share_pubkeys.to_vec();
+    keys.sort();
+    let mut h = blake3::Hasher::new();
+    for k in &keys {
+        h.update(k);
+    }
+    h.update(&(quorum as u64).to_le_bytes());
+    h.update(&[u8::from(hybrid)]);
+    *h.finalize().as_bytes()
+}
+
 #[derive(Serialize)]
 struct RootSignBody<'a> {
     domain: &'static str,
@@ -85,6 +108,30 @@ impl SoftHsm3of5 {
             .iter()
             .map(|k| k.verifying_key_bytes())
             .collect()
+    }
+
+    pub fn export_ceremony(&self, created_unix_ms: u64) -> CeremonyTranscript {
+        let share_pubkeys = self.share_pubkeys();
+        let hybrid = self.pq_shares.is_some();
+        let root_commitment = ceremony_root_commitment(&share_pubkeys, HSM_QUORUM, hybrid);
+        CeremonyTranscript {
+            share_pubkeys,
+            quorum: HSM_QUORUM,
+            hybrid,
+            created_unix_ms,
+            root_commitment,
+        }
+    }
+
+    pub fn verify_ceremony_transcript(t: &CeremonyTranscript) -> Result<(), HsmError> {
+        if t.share_pubkeys.len() != HSM_SHARES || t.quorum != HSM_QUORUM {
+            return Err(HsmError::UnknownShare);
+        }
+        let expected = ceremony_root_commitment(&t.share_pubkeys, t.quorum, t.hybrid);
+        if expected != t.root_commitment {
+            return Err(HsmError::BadShareSignature);
+        }
+        Ok(())
     }
 
     /// Sign with selected share indices (must be unique, size ≥ quorum when verified).

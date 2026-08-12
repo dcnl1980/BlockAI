@@ -1,6 +1,52 @@
 use crate::pipeline::{DataplaneError, IngressPacket};
 use std::collections::VecDeque;
 
+/// Preferred NIC dataplane backend (production selection seam).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DataplaneBackend {
+    Userspace,
+    AfXdp,
+    Dpdk,
+}
+
+/// Probe which backend can run in this process. Privileged AF_XDP/DPDK fall back in CI.
+pub fn select_backend(prefer: DataplaneBackend) -> DataplaneBackend {
+    match prefer {
+        DataplaneBackend::Userspace => DataplaneBackend::Userspace,
+        DataplaneBackend::AfXdp => {
+            if AfXdpProbe::available() {
+                DataplaneBackend::AfXdp
+            } else {
+                DataplaneBackend::Userspace
+            }
+        }
+        DataplaneBackend::Dpdk => {
+            if DpdkProbe::available() {
+                DataplaneBackend::Dpdk
+            } else {
+                DataplaneBackend::Userspace
+            }
+        }
+    }
+}
+
+/// Capability probe for real AF_XDP (always false without CAP_NET_RAW + driver).
+pub struct AfXdpProbe;
+impl AfXdpProbe {
+    pub fn available() -> bool {
+        // Lab/CI: never claim privileged XDP without explicit env opt-in.
+        std::env::var_os("BLOCKAI_AF_XDP").is_some()
+    }
+}
+
+/// Capability probe for DPDK PMD (always false without hugepages + driver).
+pub struct DpdkProbe;
+impl DpdkProbe {
+    pub fn available() -> bool {
+        std::env::var_os("BLOCKAI_DPDK").is_some()
+    }
+}
+
 /// AF_XDP-shaped receive socket. Real bindings plug in here; lab uses userspace.
 pub trait AfXdpSocket: Send {
     fn name(&self) -> &'static str;

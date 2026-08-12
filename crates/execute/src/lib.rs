@@ -2,7 +2,8 @@ mod market;
 
 use blockai_types::{
     Account, AccountId, AgentId, AmountMicros, Asset, AssetId, AssetUnits, Dispute, DisputeStatus,
-    L1Tx, Order, OrderId, TradeFill, WitnessedCheckpoint,
+    EconomicParams, GovernanceAction, L1Tx, Order, OrderId, ProposalStatus, TradeFill,
+    WitnessedCheckpoint,
 };
 use blockai_wasm::{code_hash, WasmRuntime};
 use blockai_witness::verify_witnessed;
@@ -78,6 +79,24 @@ pub enum ExecuteError {
     AssetFrozen,
     #[error("account not allowlisted for asset")]
     NotAllowlisted,
+    #[error("stake below minimum")]
+    StakeBelowMinimum,
+    #[error("insufficient fee treasury")]
+    InsufficientTreasury,
+    #[error("proposal exists")]
+    ProposalExists,
+    #[error("unknown proposal")]
+    UnknownProposal,
+    #[error("proposal not open")]
+    ProposalNotOpen,
+    #[error("already voted")]
+    AlreadyVoted,
+    #[error("no stake to vote")]
+    NoStakeToVote,
+    #[error("empty reward recipients")]
+    EmptyRecipients,
+    #[error("invalid quorum bps")]
+    InvalidQuorumBps,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +106,18 @@ pub struct AgentRecord {
     pub metadata_hash: [u8; 32],
     pub suspended: bool,
     pub reputation: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GovernanceProposal {
+    pub id: [u8; 32],
+    pub proposer: AccountId,
+    pub action: GovernanceAction,
+    pub bond: AmountMicros,
+    pub yes: AmountMicros,
+    pub no: AmountMicros,
+    pub status: ProposalStatus,
+    pub voters: Vec<AccountId>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -116,6 +147,9 @@ pub struct GlobalState {
     pub min_witnesses: usize,
     pub default_fuel: u64,
     pub events: Vec<String>,
+    pub economics: EconomicParams,
+    pub fee_treasury: AmountMicros,
+    pub proposals: HashMap<[u8; 32], GovernanceProposal>,
 }
 
 impl GlobalState {
@@ -139,7 +173,23 @@ impl GlobalState {
             .filter(|d| d.status == DisputeStatus::Open)
             .map(|d| d.bond.0)
             .sum();
-        AmountMicros(account_locked + dispute_bonds + self.order_cash_escrow_sum().0)
+        let open_proposal_bonds: u128 = self
+            .proposals
+            .values()
+            .filter(|p| p.status == ProposalStatus::Open)
+            .map(|p| p.bond.0)
+            .sum();
+        AmountMicros(
+            account_locked
+                + dispute_bonds
+                + self.order_cash_escrow_sum().0
+                + self.fee_treasury.0
+                + open_proposal_bonds,
+        )
+    }
+
+    pub fn total_stake(&self) -> AmountMicros {
+        AmountMicros(self.accounts.values().map(|a| a.stake.0).sum())
     }
 
     pub fn available_sum(&self) -> AmountMicros {
@@ -265,6 +315,9 @@ impl GlobalState {
                     .push(format!("GenesisFund {:?}/{}", account.0[0], amount.0));
             }
             L1Tx::Stake { account, amount } => {
+                if amount.0 < self.economics.min_stake.0 {
+                    return Err(ExecuteError::StakeBelowMinimum);
+                }
                 let acc = self
                     .accounts
                     .get_mut(account)
@@ -759,8 +812,178 @@ impl GlobalState {
                     asset_id.0[0], account.0[0], allowed
                 ));
             }
+            L1Tx::ChargeBaseFee { payer } => {
+                let fee = self.economics.base_fee;
+                let acc = self
+                    .accounts
+                    .get_mut(payer)
+                    .ok_or(ExecuteError::UnknownAccount)?;
+                if acc.balance_available.0 < fee.0 {
+                    return Err(ExecuteError::InsufficientAvailable);
+                }
+                acc.balance_available.0 -= fee.0;
+                self.fee_treasury.0 += fee.0;
+                self.events.push(format!("ChargeBaseFee {}", fee.0));
+            }
+            L1Tx::DistributeRewards { recipients, total } => {
+                if recipients.is_empty() {
+                    return Err(ExecuteError::EmptyRecipients);
+                }
+                if self.fee_treasury.0 < total.0 {
+                    return Err(ExecuteError::InsufficientTreasury);
+                }
+                let n = recipients.len() as u128;
+                let each = total.0 / n;
+                let mut paid = 0u128;
+                for (i, recipient) in recipients.iter().enumerate() {
+                    let share = if i + 1 == recipients.len() {
+                        total.0 - paid
+                    } else {
+                        each
+                    };
+                    let acc = self
+                        .accounts
+                        .get_mut(recipient)
+                        .ok_or(ExecuteError::UnknownAccount)?;
+                    acc.balance_available.0 += share;
+                    paid += share;
+                }
+                self.fee_treasury.0 -= total.0;
+                self.events
+                    .push(format!("DistributeRewards total={} n={}", total.0, n));
+            }
+            L1Tx::ProposeGovernance {
+                id,
+                proposer,
+                action,
+            } => {
+                if self.proposals.contains_key(id) {
+                    return Err(ExecuteError::ProposalExists);
+                }
+                let bond = self.economics.proposal_bond;
+                let acc = self
+                    .accounts
+                    .get_mut(proposer)
+                    .ok_or(ExecuteError::UnknownAccount)?;
+                if acc.suspended {
+                    return Err(ExecuteError::Suspended);
+                }
+                if acc.balance_available.0 < bond.0 {
+                    return Err(ExecuteError::InsufficientAvailable);
+                }
+                acc.balance_available.0 -= bond.0;
+                self.proposals.insert(
+                    *id,
+                    GovernanceProposal {
+                        id: *id,
+                        proposer: *proposer,
+                        action: action.clone(),
+                        bond,
+                        yes: AmountMicros(0),
+                        no: AmountMicros(0),
+                        status: ProposalStatus::Open,
+                        voters: Vec::new(),
+                    },
+                );
+                self.events.push(format!("ProposeGovernance {}", id[0]));
+            }
+            L1Tx::VoteGovernance {
+                id,
+                voter,
+                approve,
+            } => {
+                let stake = self
+                    .accounts
+                    .get(voter)
+                    .ok_or(ExecuteError::UnknownAccount)?
+                    .stake;
+                if stake.0 == 0 {
+                    return Err(ExecuteError::NoStakeToVote);
+                }
+                let proposal = self
+                    .proposals
+                    .get_mut(id)
+                    .ok_or(ExecuteError::UnknownProposal)?;
+                if proposal.status != ProposalStatus::Open {
+                    return Err(ExecuteError::ProposalNotOpen);
+                }
+                if proposal.voters.contains(voter) {
+                    return Err(ExecuteError::AlreadyVoted);
+                }
+                if *approve {
+                    proposal.yes.0 += stake.0;
+                } else {
+                    proposal.no.0 += stake.0;
+                }
+                proposal.voters.push(*voter);
+                self.events.push(format!(
+                    "VoteGovernance {} approve={} weight={}",
+                    id[0], approve, stake.0
+                ));
+            }
+            L1Tx::FinalizeGovernance { id } => {
+                self.finalize_governance(*id)?;
+            }
         }
         self.check_conservation()?;
+        Ok(())
+    }
+
+    fn finalize_governance(&mut self, id: [u8; 32]) -> Result<(), ExecuteError> {
+        let total_stake = self.total_stake().0;
+        let quorum_bps = self.economics.vote_quorum_bps;
+        if quorum_bps > 10_000 {
+            return Err(ExecuteError::InvalidQuorumBps);
+        }
+        let proposal = self
+            .proposals
+            .get_mut(&id)
+            .ok_or(ExecuteError::UnknownProposal)?;
+        if proposal.status != ProposalStatus::Open {
+            return Err(ExecuteError::ProposalNotOpen);
+        }
+        let yes = proposal.yes.0;
+        let passed = total_stake > 0 && yes.saturating_mul(10_000) / total_stake >= quorum_bps as u128;
+        let proposer = proposal.proposer;
+        let bond = proposal.bond;
+        let action = proposal.action.clone();
+        proposal.status = if passed {
+            ProposalStatus::Passed
+        } else {
+            ProposalStatus::Rejected
+        };
+
+        // Return bond to proposer.
+        let acc = self
+            .accounts
+            .get_mut(&proposer)
+            .ok_or(ExecuteError::UnknownAccount)?;
+        acc.balance_available.0 += bond.0;
+
+        if passed {
+            match action {
+                GovernanceAction::SetMinStake { value } => {
+                    self.economics.min_stake = value;
+                }
+                GovernanceAction::SetBaseFee { value } => {
+                    self.economics.base_fee = value;
+                }
+                GovernanceAction::SetVoteQuorumBps { value } => {
+                    if value > 10_000 {
+                        return Err(ExecuteError::InvalidQuorumBps);
+                    }
+                    self.economics.vote_quorum_bps = value;
+                }
+                GovernanceAction::TextNote { .. } => {}
+            }
+            if let Some(p) = self.proposals.get_mut(&id) {
+                p.status = ProposalStatus::Executed;
+            }
+        }
+        self.events.push(format!(
+            "FinalizeGovernance {} passed={} yes={} total_stake={}",
+            id[0], passed, yes, total_stake
+        ));
         Ok(())
     }
 

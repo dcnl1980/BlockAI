@@ -1,6 +1,6 @@
 use crate::{
-    AccountId, AgentId, AmountMicros, AssetId, AssetUnits, Epoch, OrderId, ShardId, Side,
-    WitnessedCheckpoint,
+    AccountId, AgentId, AmountMicros, AssetId, AssetUnits, Epoch, GovernanceAction, OrderId,
+    ShardId, Side, WitnessedCheckpoint,
 };
 use serde::{Deserialize, Serialize};
 
@@ -157,6 +157,28 @@ pub enum L1Tx {
         issuer: AccountId,
         account: AccountId,
         allowed: bool,
+    },
+    /// Deduct `base_fee` from payer into the fee treasury.
+    ChargeBaseFee {
+        payer: AccountId,
+    },
+    /// Pay validators from fee treasury (equal split of `total` capped by treasury).
+    DistributeRewards {
+        recipients: Vec<AccountId>,
+        total: AmountMicros,
+    },
+    ProposeGovernance {
+        id: [u8; 32],
+        proposer: AccountId,
+        action: GovernanceAction,
+    },
+    VoteGovernance {
+        id: [u8; 32],
+        voter: AccountId,
+        approve: bool,
+    },
+    FinalizeGovernance {
+        id: [u8; 32],
     },
 }
 

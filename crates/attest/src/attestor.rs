@@ -98,6 +98,9 @@ impl Attestor for HardwareAttestor {
             return Err(AttestorError::MeasurementUnavailable);
         }
         // Re-sign under platform key as a stand-in for a TPM quote over PCRs.
+        let pcr0 = *blake3::hash(b"pcr0-measured-boot").as_bytes();
+        let pcr1 = *blake3::hash(b"pcr1-edge-cfg").as_bytes();
+        let quote_nonce = *blake3::hash(b"quote-nonce-lab").as_bytes();
         Ok(sign_evidence(
             &self.platform.platform,
             AttestationEvidence {
@@ -107,6 +110,8 @@ impl Attestor for HardwareAttestor {
                 hardware_id: self.platform.hardware_id,
                 platform_pubkey: [0u8; 32],
                 platform_signature: vec![],
+                pcrs: vec![pcr0, pcr1],
+                quote_nonce,
             },
         ))
     }

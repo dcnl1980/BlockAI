@@ -48,6 +48,10 @@ path = "src/bin/assurance_sim.rs"
 name = "fastpay_sim"
 path = "src/bin/fastpay_sim.rs"
 
+[[bin]]
+name = "econ_gov_sim"
+path = "src/bin/econ_gov_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
