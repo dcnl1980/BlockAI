@@ -6,7 +6,9 @@ use blockai_crypto::{
     verify_capability, verify_pay, verify_pay_hybrid, verifying_key_from_bytes, AlgorithmId,
     Keypair,
 };
-use blockai_types::{tx_id, Epoch, EpochState, Pay, ShardId, SpendCapability};
+use blockai_types::{
+    tx_id, AmountMicros, CapabilityId, Epoch, EpochState, Pay, Sequence, ShardId, SpendCapability,
+};
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use std::collections::HashMap;
 use std::path::Path;
@@ -279,6 +281,22 @@ impl ShardEngine {
     pub async fn kill(&self) {
         let mut inner = self.inner.lock().await;
         inner.alive = false;
+    }
+
+    /// Remaining lease micros for an activated capability (assurance / ops).
+    pub async fn remaining(&self, capability_id: &CapabilityId) -> Result<AmountMicros, ShardError> {
+        let inner = self.inner.lock().await;
+        inner.state.remaining(capability_id)
+    }
+
+    pub async fn is_consumed(
+        &self,
+        capability_id: CapabilityId,
+        epoch: Epoch,
+        sequence: Sequence,
+    ) -> bool {
+        let inner = self.inner.lock().await;
+        inner.state.is_consumed(capability_id, epoch, sequence)
     }
 
     pub async fn pump(&self) -> Result<(), ShardError> {

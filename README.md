@@ -15,11 +15,13 @@ Secure Economic Execution Fabric (SEEF) — from-scratch Rust L1 + agent micropa
 - Plan 8: `docs/superpowers/plans/2026-08-12-seef-asset-compliance.md` (freeze + allowlist)
 - Plan 9: `docs/superpowers/plans/2026-08-12-seef-prod-dataplane.md` (AF_XDP/DPDK interfaces, multipath, HSM)
 - Plan 10: `docs/superpowers/plans/2026-08-12-seef-pq-dual-sign.md` (full hybrid PQ dual-sign)
+- Plan 11: `docs/superpowers/plans/2026-08-12-seef-assurance.md` (assurance drills + p50 gate)
 - Assets design: `docs/superpowers/specs/2026-08-12-blockai-tokenized-assets-design.md`
 - Order book design: `docs/superpowers/specs/2026-08-12-blockai-order-book-design.md`
 - Compliance design: `docs/superpowers/specs/2026-08-12-blockai-asset-compliance-design.md`
 - Prod dataplane design: `docs/superpowers/specs/2026-08-12-blockai-prod-dataplane-design.md`
 - PQ dual-sign design: `docs/superpowers/specs/2026-08-12-blockai-pq-dual-sign-design.md`
+- Assurance design: `docs/superpowers/specs/2026-08-12-blockai-assurance-design.md`
 
 ## Develop
 
@@ -35,5 +37,7 @@ cargo run -p blockai-tools --bin trade_sim -- --symbol ACME --mint 100 --units 1
 cargo run -p blockai-tools --bin dataplane_sim
 cargo run -p blockai-tools --bin dataplane_sim -- --measured-hw
 cargo run -p blockai-tools --bin pq_sim -- --amount 10
+cargo test -p blockai-shard --test assurance_drills
+cargo run -p blockai-tools --bin assurance_sim --release -- --pays 50
 cargo bench -p blockai-shard --bench pay_authorize
 ```

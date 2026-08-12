@@ -40,6 +40,10 @@ path = "src/bin/dataplane_sim.rs"
 name = "pq_sim"
 path = "src/bin/pq_sim.rs"
 
+[[bin]]
+name = "assurance_sim"
+path = "src/bin/assurance_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
