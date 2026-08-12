@@ -31,10 +31,9 @@ impl GlobalState {
         if self.orders.contains_key(&order_id) {
             return Err(ExecuteError::OrderExists);
         }
-        if !self.assets.contains_key(&asset_id) {
-            return Err(ExecuteError::UnknownAsset);
-        }
+        self.ensure_asset_active(&asset_id)?;
         self.ensure_active(&trader)?;
+        self.ensure_asset_participant(&asset_id, &trader)?;
 
         let notional = price
             .0

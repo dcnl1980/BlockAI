@@ -12,8 +12,10 @@ Secure Economic Execution Fabric (SEEF) — from-scratch Rust L1 + agent micropa
 - Plan 5: `docs/superpowers/plans/2026-08-09-seef-quic-attest-pq.md`
 - Plan 6: `docs/superpowers/plans/2026-08-12-seef-tokenized-assets.md` (tokenized assets + spot trade)
 - Plan 7: `docs/superpowers/plans/2026-08-12-seef-order-book.md` (limit order book)
+- Plan 8: `docs/superpowers/plans/2026-08-12-seef-asset-compliance.md` (freeze + allowlist)
 - Assets design: `docs/superpowers/specs/2026-08-12-blockai-tokenized-assets-design.md`
 - Order book design: `docs/superpowers/specs/2026-08-12-blockai-order-book-design.md`
+- Compliance design: `docs/superpowers/specs/2026-08-12-blockai-asset-compliance-design.md`
 
 ## Develop
 

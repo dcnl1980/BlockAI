@@ -135,6 +135,22 @@ pub enum L1Tx {
         order_id: OrderId,
         trader: AccountId,
     },
+    SetAssetFrozen {
+        asset_id: AssetId,
+        issuer: AccountId,
+        frozen: bool,
+    },
+    SetAssetAllowlistEnabled {
+        asset_id: AssetId,
+        issuer: AccountId,
+        enabled: bool,
+    },
+    SetAssetAllowlistMember {
+        asset_id: AssetId,
+        issuer: AccountId,
+        account: AccountId,
+        allowed: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
