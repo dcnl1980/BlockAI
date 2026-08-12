@@ -1,3 +1,7 @@
+pub mod attestor;
+
+pub use attestor::{Attestor, AttestorError, HardwareAttestor, SoftwareAttestor};
+
 use blockai_crypto::{verifying_key_from_bytes, Keypair};
 use blockai_types::encode_cbor;
 use ed25519_dalek::{Signature, Signer, Verifier};
@@ -14,6 +18,12 @@ pub struct AttestationEvidence {
     pub hardware_id: [u8; 32],
     pub platform_pubkey: [u8; 32],
     pub platform_signature: Vec<u8>,
+    /// TPM/PCR-shaped digests (empty for pure software attest).
+    #[serde(default)]
+    pub pcrs: Vec<[u8; 32]>,
+    /// Freshness nonce bound into the signed quote body.
+    #[serde(default)]
+    pub quote_nonce: [u8; 32],
 }
 
 #[derive(Clone, Debug)]
@@ -23,6 +33,8 @@ pub struct AttestationPolicy {
     pub approved_versions: HashSet<String>,
     pub approved_hardware_ids: HashSet<[u8; 32]>,
     pub platform_pubkey: [u8; 32],
+    /// When non-empty, evidence.pcrs must equal this list exactly.
+    pub required_pcrs: Vec<[u8; 32]>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -39,6 +51,8 @@ pub enum AttestError {
     HardwareRejected,
     #[error("platform key mismatch")]
     PlatformMismatch,
+    #[error("PCR quote mismatch")]
+    PcrRejected,
     #[error("cbor encode failed")]
     CborEncode,
 }
@@ -53,6 +67,8 @@ struct EvidenceBody<'a> {
     version: &'a str,
     hardware_id: [u8; 32],
     platform_pubkey: [u8; 32],
+    pcrs: &'a [[u8; 32]],
+    quote_nonce: [u8; 32],
 }
 
 fn evidence_bytes(ev: &AttestationEvidence) -> Result<Vec<u8>, AttestError> {
@@ -64,6 +80,8 @@ fn evidence_bytes(ev: &AttestationEvidence) -> Result<Vec<u8>, AttestError> {
         version: &ev.version,
         hardware_id: ev.hardware_id,
         platform_pubkey: ev.platform_pubkey,
+        pcrs: &ev.pcrs,
+        quote_nonce: ev.quote_nonce,
     };
     encode_cbor(&body).map_err(|_| AttestError::CborEncode)
 }
@@ -96,6 +114,9 @@ pub fn verify_evidence(
         .contains(&evidence.hardware_id)
     {
         return Err(AttestError::HardwareRejected);
+    }
+    if !policy.required_pcrs.is_empty() && policy.required_pcrs != evidence.pcrs {
+        return Err(AttestError::PcrRejected);
     }
     if evidence.platform_signature.is_empty() {
         return Err(AttestError::BadSignature);
@@ -145,6 +166,7 @@ impl TestPlatform {
             approved_versions,
             approved_hardware_ids,
             platform_pubkey: platform.verifying_key_bytes(),
+            required_pcrs: Vec::new(),
         };
         Self {
             platform,
@@ -166,6 +188,8 @@ impl TestPlatform {
                 hardware_id: self.hardware_id,
                 platform_pubkey: [0u8; 32],
                 platform_signature: vec![],
+                pcrs: Vec::new(),
+                quote_nonce: [0u8; 32],
             },
         )
     }

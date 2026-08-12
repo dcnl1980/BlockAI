@@ -63,6 +63,26 @@ impl ShardState {
             .ok_or(ShardError::UnknownCapability)
     }
 
+    /// Increase remaining on an activated capability (FastPay top-up).
+    pub fn top_up(
+        &mut self,
+        capability_id: CapabilityId,
+        amount: AmountMicros,
+    ) -> Result<(), ShardError> {
+        if amount.0 == 0 {
+            return Err(ShardError::InsufficientRemaining {
+                remaining: AmountMicros(0),
+                requested: amount,
+            });
+        }
+        let cap = self
+            .capabilities
+            .get_mut(&capability_id)
+            .ok_or(ShardError::UnknownCapability)?;
+        cap.remaining = AmountMicros(cap.remaining.0 + amount.0);
+        Ok(())
+    }
+
     pub fn is_consumed(&self, capability_id: CapabilityId, epoch: Epoch, sequence: Sequence) -> bool {
         self.consumed
             .contains(&(capability_id, epoch.0, sequence.0))

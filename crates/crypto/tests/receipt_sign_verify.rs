@@ -15,6 +15,8 @@ fn edge_and_service_sign_verify_and_tamper() {
         tx_id: [2u8; 32],
         edge_pubkey: edge_kp.verifying_key_bytes(),
         edge_signature: vec![],
+        edge_pq_pubkey: vec![],
+        edge_pq_signature: vec![],
     };
     edge.edge_signature = sign_edge_acceptance(&edge_kp, &edge);
     assert!(verify_edge_acceptance(&edge_kp.verifying_key(), &edge).is_ok());
@@ -27,6 +29,8 @@ fn edge_and_service_sign_verify_and_tamper() {
         actual_amount: AmountMicros(42),
         service_pubkey: service_kp.verifying_key_bytes(),
         service_signature: vec![],
+        service_pq_pubkey: vec![],
+        service_pq_signature: vec![],
     };
     service.service_signature = sign_service_receipt(&service_kp, &service);
     assert!(verify_service_receipt(&service_kp.verifying_key(), &service).is_ok());

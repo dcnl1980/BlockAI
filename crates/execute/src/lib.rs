@@ -1,6 +1,9 @@
+mod market;
+
 use blockai_types::{
     Account, AccountId, AgentId, AmountMicros, Asset, AssetId, AssetUnits, Dispute, DisputeStatus,
-    L1Tx, WitnessedCheckpoint,
+    EconomicParams, GovernanceAction, L1Tx, Order, OrderId, ProposalStatus, TradeFill,
+    WitnessedCheckpoint,
 };
 use blockai_wasm::{code_hash, WasmRuntime};
 use blockai_witness::verify_witnessed;
@@ -62,6 +65,38 @@ pub enum ExecuteError {
     AssetConservationBroken,
     #[error("self trade forbidden")]
     SelfTrade,
+    #[error("order already exists")]
+    OrderExists,
+    #[error("unknown order")]
+    UnknownOrder,
+    #[error("order not open")]
+    OrderNotOpen,
+    #[error("not order owner")]
+    NotOrderOwner,
+    #[error("escrow overflow")]
+    EscrowOverflow,
+    #[error("asset frozen")]
+    AssetFrozen,
+    #[error("account not allowlisted for asset")]
+    NotAllowlisted,
+    #[error("stake below minimum")]
+    StakeBelowMinimum,
+    #[error("insufficient fee treasury")]
+    InsufficientTreasury,
+    #[error("proposal exists")]
+    ProposalExists,
+    #[error("unknown proposal")]
+    UnknownProposal,
+    #[error("proposal not open")]
+    ProposalNotOpen,
+    #[error("already voted")]
+    AlreadyVoted,
+    #[error("no stake to vote")]
+    NoStakeToVote,
+    #[error("empty reward recipients")]
+    EmptyRecipients,
+    #[error("invalid quorum bps")]
+    InvalidQuorumBps,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +106,18 @@ pub struct AgentRecord {
     pub metadata_hash: [u8; 32],
     pub suspended: bool,
     pub reputation: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GovernanceProposal {
+    pub id: [u8; 32],
+    pub proposer: AccountId,
+    pub action: GovernanceAction,
+    pub bond: AmountMicros,
+    pub yes: AmountMicros,
+    pub no: AmountMicros,
+    pub status: ProposalStatus,
+    pub voters: Vec<AccountId>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -85,12 +132,24 @@ pub struct GlobalState {
     pub disputes: HashMap<[u8; 32], Dispute>,
     pub assets: HashMap<AssetId, Asset>,
     pub asset_symbols: HashMap<String, AssetId>,
+    /// Allowlisted (asset, account) pairs when asset.allowlist_enabled.
+    pub asset_allowlist: HashMap<(AssetId, AccountId), ()>,
     /// Holdings keyed by (account, asset_id).
     pub holdings: HashMap<(AccountId, AssetId), AssetUnits>,
+    pub orders: HashMap<OrderId, Order>,
+    /// EURC micros locked for buy orders.
+    pub order_cash_escrow: HashMap<OrderId, u128>,
+    /// Asset units locked for sell orders.
+    pub order_asset_escrow: HashMap<OrderId, (AssetId, AssetUnits)>,
+    pub fills: Vec<TradeFill>,
+    pub next_order_seq: u64,
     pub last_call_result: Option<i32>,
     pub min_witnesses: usize,
     pub default_fuel: u64,
     pub events: Vec<String>,
+    pub economics: EconomicParams,
+    pub fee_treasury: AmountMicros,
+    pub proposals: HashMap<[u8; 32], GovernanceProposal>,
 }
 
 impl GlobalState {
@@ -114,7 +173,23 @@ impl GlobalState {
             .filter(|d| d.status == DisputeStatus::Open)
             .map(|d| d.bond.0)
             .sum();
-        AmountMicros(account_locked + dispute_bonds)
+        let open_proposal_bonds: u128 = self
+            .proposals
+            .values()
+            .filter(|p| p.status == ProposalStatus::Open)
+            .map(|p| p.bond.0)
+            .sum();
+        AmountMicros(
+            account_locked
+                + dispute_bonds
+                + self.order_cash_escrow_sum().0
+                + self.fee_treasury.0
+                + open_proposal_bonds,
+        )
+    }
+
+    pub fn total_stake(&self) -> AmountMicros {
+        AmountMicros(self.accounts.values().map(|a| a.stake.0).sum())
     }
 
     pub fn available_sum(&self) -> AmountMicros {
@@ -145,20 +220,21 @@ impl GlobalState {
 
     pub fn check_asset_conservation(&self) -> Result<(), ExecuteError> {
         for (asset_id, asset) in &self.assets {
-            let sum: AssetUnits = self
+            let held: AssetUnits = self
                 .holdings
                 .iter()
                 .filter(|((_, id), _)| id == asset_id)
                 .map(|(_, u)| *u)
                 .sum();
-            if sum != asset.minted || asset.minted > asset.max_supply {
+            let escrowed = self.asset_escrow_units(*asset_id);
+            if held + escrowed != asset.minted || asset.minted > asset.max_supply {
                 return Err(ExecuteError::AssetConservationBroken);
             }
         }
         Ok(())
     }
 
-    fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
+    pub(crate) fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
         let acc = self
             .accounts
             .get(account)
@@ -169,12 +245,45 @@ impl GlobalState {
         Ok(())
     }
 
-    fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
+    pub(crate) fn ensure_asset_active(&self, asset_id: &AssetId) -> Result<(), ExecuteError> {
+        let asset = self
+            .assets
+            .get(asset_id)
+            .ok_or(ExecuteError::UnknownAsset)?;
+        if asset.frozen {
+            return Err(ExecuteError::AssetFrozen);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_asset_participant(
+        &self,
+        asset_id: &AssetId,
+        account: &AccountId,
+    ) -> Result<(), ExecuteError> {
+        let asset = self
+            .assets
+            .get(asset_id)
+            .ok_or(ExecuteError::UnknownAsset)?;
+        if asset.allowlist_enabled && !self.asset_allowlist.contains_key(&(*asset_id, *account)) {
+            return Err(ExecuteError::NotAllowlisted);
+        }
+        Ok(())
+    }
+
+    fn ensure_issuer(asset: &Asset, issuer: &AccountId) -> Result<(), ExecuteError> {
+        if asset.issuer != *issuer {
+            return Err(ExecuteError::NotAssetIssuer);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
         let entry = self.holdings.entry((account, asset_id)).or_insert(0);
         *entry = entry.saturating_add(units);
     }
 
-    fn debit_holding(
+    pub(crate) fn debit_holding(
         &mut self,
         account: AccountId,
         asset_id: AssetId,
@@ -206,6 +315,9 @@ impl GlobalState {
                     .push(format!("GenesisFund {:?}/{}", account.0[0], amount.0));
             }
             L1Tx::Stake { account, amount } => {
+                if amount.0 < self.economics.min_stake.0 {
+                    return Err(ExecuteError::StakeBelowMinimum);
+                }
                 let acc = self
                     .accounts
                     .get_mut(account)
@@ -254,6 +366,37 @@ impl GlobalState {
                 self.events.push(format!(
                     "AllocateShardAllowance {} -> {}",
                     shard_id.as_str(),
+                    amount.0
+                ));
+            }
+            L1Tx::ReallocateShardOutstanding {
+                account,
+                from_shard,
+                to_shard,
+                amount,
+            } => {
+                if from_shard == to_shard || amount.0 == 0 {
+                    return Err(ExecuteError::InsufficientShardAllowance);
+                }
+                let from_key = (from_shard.as_str().to_string(), *account);
+                let from = self
+                    .shard_outstanding
+                    .get_mut(&from_key)
+                    .ok_or(ExecuteError::InsufficientShardAllowance)?;
+                if from.0 < amount.0 {
+                    return Err(ExecuteError::InsufficientShardAllowance);
+                }
+                from.0 -= amount.0;
+                let to_key = (to_shard.as_str().to_string(), *account);
+                let entry = self
+                    .shard_outstanding
+                    .entry(to_key)
+                    .or_insert(AmountMicros(0));
+                entry.0 += amount.0;
+                self.events.push(format!(
+                    "ReallocateShardOutstanding {} -> {} amount={}",
+                    from_shard.as_str(),
+                    to_shard.as_str(),
                     amount.0
                 ));
             }
@@ -498,6 +641,8 @@ impl GlobalState {
                         decimals: *decimals,
                         max_supply: *max_supply,
                         minted: 0,
+                        frozen: false,
+                        allowlist_enabled: false,
                     },
                 );
                 self.asset_symbols.insert(sym.clone(), *asset_id);
@@ -515,14 +660,14 @@ impl GlobalState {
                 }
                 self.ensure_active(issuer)?;
                 self.ensure_active(to)?;
+                self.ensure_asset_active(asset_id)?;
                 let asset = self
                     .assets
                     .get(asset_id)
                     .ok_or(ExecuteError::UnknownAsset)?
                     .clone();
-                if asset.issuer != *issuer {
-                    return Err(ExecuteError::NotAssetIssuer);
-                }
+                Self::ensure_issuer(&asset, issuer)?;
+                self.ensure_asset_participant(asset_id, to)?;
                 if asset.minted.saturating_add(*units) > asset.max_supply {
                     return Err(ExecuteError::ExceedsMaxSupply);
                 }
@@ -544,11 +689,11 @@ impl GlobalState {
                 if *units == 0 {
                     return Err(ExecuteError::ZeroAssetAmount);
                 }
-                if !self.assets.contains_key(asset_id) {
-                    return Err(ExecuteError::UnknownAsset);
-                }
+                self.ensure_asset_active(asset_id)?;
                 self.ensure_active(from)?;
                 self.ensure_active(to)?;
+                self.ensure_asset_participant(asset_id, from)?;
+                self.ensure_asset_participant(asset_id, to)?;
                 self.debit_holding(*from, *asset_id, *units)?;
                 self.credit_holding(*to, *asset_id, *units);
                 self.events.push(format!(
@@ -569,11 +714,11 @@ impl GlobalState {
                 if buyer == seller {
                     return Err(ExecuteError::SelfTrade);
                 }
-                if !self.assets.contains_key(asset_id) {
-                    return Err(ExecuteError::UnknownAsset);
-                }
+                self.ensure_asset_active(asset_id)?;
                 self.ensure_active(buyer)?;
                 self.ensure_active(seller)?;
+                self.ensure_asset_participant(asset_id, buyer)?;
+                self.ensure_asset_participant(asset_id, seller)?;
                 {
                     let buyer_acc = self.accounts.get(buyer).unwrap();
                     if buyer_acc.balance_available.0 < price_total.0 {
@@ -599,8 +744,246 @@ impl GlobalState {
                     asset_id.0[0], asset_units, price_total.0, buyer.0[0], seller.0[0]
                 ));
             }
+            L1Tx::PlaceLimitOrder {
+                order_id,
+                asset_id,
+                trader,
+                side,
+                price,
+                units,
+            } => {
+                self.place_limit_order(*order_id, *asset_id, *trader, *side, *price, *units)?;
+            }
+            L1Tx::CancelOrder { order_id, trader } => {
+                self.cancel_order(*order_id, *trader)?;
+            }
+            L1Tx::SetAssetFrozen {
+                asset_id,
+                issuer,
+                frozen,
+            } => {
+                self.ensure_active(issuer)?;
+                let asset = self
+                    .assets
+                    .get_mut(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?;
+                Self::ensure_issuer(asset, issuer)?;
+                asset.frozen = *frozen;
+                self.events
+                    .push(format!("SetAssetFrozen {} frozen={}", asset_id.0[0], frozen));
+            }
+            L1Tx::SetAssetAllowlistEnabled {
+                asset_id,
+                issuer,
+                enabled,
+            } => {
+                self.ensure_active(issuer)?;
+                let asset = self
+                    .assets
+                    .get_mut(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?;
+                Self::ensure_issuer(asset, issuer)?;
+                asset.allowlist_enabled = *enabled;
+                self.events.push(format!(
+                    "SetAssetAllowlistEnabled {} enabled={}",
+                    asset_id.0[0], enabled
+                ));
+            }
+            L1Tx::SetAssetAllowlistMember {
+                asset_id,
+                issuer,
+                account,
+                allowed,
+            } => {
+                self.ensure_active(issuer)?;
+                let asset = self
+                    .assets
+                    .get(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?
+                    .clone();
+                Self::ensure_issuer(&asset, issuer)?;
+                if *allowed {
+                    self.asset_allowlist.insert((*asset_id, *account), ());
+                } else {
+                    self.asset_allowlist.remove(&(*asset_id, *account));
+                }
+                self.events.push(format!(
+                    "SetAssetAllowlistMember asset={} account={} allowed={}",
+                    asset_id.0[0], account.0[0], allowed
+                ));
+            }
+            L1Tx::ChargeBaseFee { payer } => {
+                let fee = self.economics.base_fee;
+                let acc = self
+                    .accounts
+                    .get_mut(payer)
+                    .ok_or(ExecuteError::UnknownAccount)?;
+                if acc.balance_available.0 < fee.0 {
+                    return Err(ExecuteError::InsufficientAvailable);
+                }
+                acc.balance_available.0 -= fee.0;
+                self.fee_treasury.0 += fee.0;
+                self.events.push(format!("ChargeBaseFee {}", fee.0));
+            }
+            L1Tx::DistributeRewards { recipients, total } => {
+                if recipients.is_empty() {
+                    return Err(ExecuteError::EmptyRecipients);
+                }
+                if self.fee_treasury.0 < total.0 {
+                    return Err(ExecuteError::InsufficientTreasury);
+                }
+                let n = recipients.len() as u128;
+                let each = total.0 / n;
+                let mut paid = 0u128;
+                for (i, recipient) in recipients.iter().enumerate() {
+                    let share = if i + 1 == recipients.len() {
+                        total.0 - paid
+                    } else {
+                        each
+                    };
+                    let acc = self
+                        .accounts
+                        .get_mut(recipient)
+                        .ok_or(ExecuteError::UnknownAccount)?;
+                    acc.balance_available.0 += share;
+                    paid += share;
+                }
+                self.fee_treasury.0 -= total.0;
+                self.events
+                    .push(format!("DistributeRewards total={} n={}", total.0, n));
+            }
+            L1Tx::ProposeGovernance {
+                id,
+                proposer,
+                action,
+            } => {
+                if self.proposals.contains_key(id) {
+                    return Err(ExecuteError::ProposalExists);
+                }
+                let bond = self.economics.proposal_bond;
+                let acc = self
+                    .accounts
+                    .get_mut(proposer)
+                    .ok_or(ExecuteError::UnknownAccount)?;
+                if acc.suspended {
+                    return Err(ExecuteError::Suspended);
+                }
+                if acc.balance_available.0 < bond.0 {
+                    return Err(ExecuteError::InsufficientAvailable);
+                }
+                acc.balance_available.0 -= bond.0;
+                self.proposals.insert(
+                    *id,
+                    GovernanceProposal {
+                        id: *id,
+                        proposer: *proposer,
+                        action: action.clone(),
+                        bond,
+                        yes: AmountMicros(0),
+                        no: AmountMicros(0),
+                        status: ProposalStatus::Open,
+                        voters: Vec::new(),
+                    },
+                );
+                self.events.push(format!("ProposeGovernance {}", id[0]));
+            }
+            L1Tx::VoteGovernance {
+                id,
+                voter,
+                approve,
+            } => {
+                let stake = self
+                    .accounts
+                    .get(voter)
+                    .ok_or(ExecuteError::UnknownAccount)?
+                    .stake;
+                if stake.0 == 0 {
+                    return Err(ExecuteError::NoStakeToVote);
+                }
+                let proposal = self
+                    .proposals
+                    .get_mut(id)
+                    .ok_or(ExecuteError::UnknownProposal)?;
+                if proposal.status != ProposalStatus::Open {
+                    return Err(ExecuteError::ProposalNotOpen);
+                }
+                if proposal.voters.contains(voter) {
+                    return Err(ExecuteError::AlreadyVoted);
+                }
+                if *approve {
+                    proposal.yes.0 += stake.0;
+                } else {
+                    proposal.no.0 += stake.0;
+                }
+                proposal.voters.push(*voter);
+                self.events.push(format!(
+                    "VoteGovernance {} approve={} weight={}",
+                    id[0], approve, stake.0
+                ));
+            }
+            L1Tx::FinalizeGovernance { id } => {
+                self.finalize_governance(*id)?;
+            }
         }
         self.check_conservation()?;
+        Ok(())
+    }
+
+    fn finalize_governance(&mut self, id: [u8; 32]) -> Result<(), ExecuteError> {
+        let total_stake = self.total_stake().0;
+        let quorum_bps = self.economics.vote_quorum_bps;
+        if quorum_bps > 10_000 {
+            return Err(ExecuteError::InvalidQuorumBps);
+        }
+        let proposal = self
+            .proposals
+            .get_mut(&id)
+            .ok_or(ExecuteError::UnknownProposal)?;
+        if proposal.status != ProposalStatus::Open {
+            return Err(ExecuteError::ProposalNotOpen);
+        }
+        let yes = proposal.yes.0;
+        let passed = total_stake > 0 && yes.saturating_mul(10_000) / total_stake >= quorum_bps as u128;
+        let proposer = proposal.proposer;
+        let bond = proposal.bond;
+        let action = proposal.action.clone();
+        proposal.status = if passed {
+            ProposalStatus::Passed
+        } else {
+            ProposalStatus::Rejected
+        };
+
+        // Return bond to proposer.
+        let acc = self
+            .accounts
+            .get_mut(&proposer)
+            .ok_or(ExecuteError::UnknownAccount)?;
+        acc.balance_available.0 += bond.0;
+
+        if passed {
+            match action {
+                GovernanceAction::SetMinStake { value } => {
+                    self.economics.min_stake = value;
+                }
+                GovernanceAction::SetBaseFee { value } => {
+                    self.economics.base_fee = value;
+                }
+                GovernanceAction::SetVoteQuorumBps { value } => {
+                    if value > 10_000 {
+                        return Err(ExecuteError::InvalidQuorumBps);
+                    }
+                    self.economics.vote_quorum_bps = value;
+                }
+                GovernanceAction::TextNote { .. } => {}
+            }
+            if let Some(p) = self.proposals.get_mut(&id) {
+                p.status = ProposalStatus::Executed;
+            }
+        }
+        self.events.push(format!(
+            "FinalizeGovernance {} passed={} yes={} total_stake={}",
+            id[0], passed, yes, total_stake
+        ));
         Ok(())
     }
 

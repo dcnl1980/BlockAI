@@ -6,7 +6,12 @@ pub mod receipt_sign;
 pub mod sign;
 
 pub use alg::AlgorithmId;
-pub use hybrid::{seal_capability_hybrid, verify_capability_hybrid};
+pub use hybrid::{
+    dual_sign_root_op, seal_capability_hybrid, seal_edge_hybrid, seal_pay_hybrid,
+    seal_service_hybrid, seal_witness_pq, verify_capability_hybrid, verify_checkpoint_pq,
+    verify_edge_hybrid, verify_pay_hybrid, verify_root_op_pq, verify_service_hybrid,
+    verify_witness_hybrid, seal_checkpoint_pq,
+};
 pub use keys::{KeyDomain, Keypair};
 pub use pq::{verify_pq, PqKeypair, PqPublicKey};
 pub use receipt_sign::{

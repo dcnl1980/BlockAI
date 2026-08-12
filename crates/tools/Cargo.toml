@@ -32,6 +32,26 @@ path = "src/bin/seef_sim.rs"
 name = "trade_sim"
 path = "src/bin/trade_sim.rs"
 
+[[bin]]
+name = "dataplane_sim"
+path = "src/bin/dataplane_sim.rs"
+
+[[bin]]
+name = "pq_sim"
+path = "src/bin/pq_sim.rs"
+
+[[bin]]
+name = "assurance_sim"
+path = "src/bin/assurance_sim.rs"
+
+[[bin]]
+name = "fastpay_sim"
+path = "src/bin/fastpay_sim.rs"
+
+[[bin]]
+name = "econ_gov_sim"
+path = "src/bin/econ_gov_sim.rs"
+
 [dependencies]
 blockai-types = { path = "../types" }
 blockai-crypto = { path = "../crypto" }
@@ -42,6 +62,10 @@ blockai-consensus = { path = "../consensus" }
 blockai-execute = { path = "../execute" }
 blockai-wasm = { path = "../wasm" }
 blockai-net = { path = "../net" }
+blockai-dataplane = { path = "../dataplane" }
+blockai-hsm = { path = "../hsm" }
+blockai-attest = { path = "../attest" }
+blockai-fastpay = { path = "../fastpay" }
 blake3 = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 clap = { version = "4", features = ["derive"] }

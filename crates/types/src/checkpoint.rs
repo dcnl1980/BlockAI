@@ -17,12 +17,20 @@ pub struct SignedCheckpoint {
     pub header: CheckpointHeader,
     pub shard_signer_pubkey: [u8; 32],
     pub shard_signature: Vec<u8>,
+    #[serde(default)]
+    pub shard_pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub shard_pq_signature: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WitnessSig {
     pub witness_pubkey: [u8; 32],
     pub signature: Vec<u8>,
+    #[serde(default)]
+    pub witness_pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub witness_pq_signature: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

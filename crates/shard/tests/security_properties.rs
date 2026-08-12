@@ -50,6 +50,7 @@ fn signed_pay(agent_kp: &Keypair, cap: &SpendCapability, seq: u64, amount: Amoun
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999_999_999,
         agent_signature: vec![],
+        ..Default::default()
     };
     pay.agent_signature = sign_pay(agent_kp, &pay);
     pay

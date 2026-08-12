@@ -18,6 +18,7 @@ fn pay_sign_and_verify_roundtrip() {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999_999_999,
         agent_signature: vec![],
+    ..Default::default()
     };
     pay.agent_signature = sign_pay(&kp, &pay);
     assert!(verify_pay(&kp.verifying_key(), &pay).is_ok());

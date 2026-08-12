@@ -27,6 +27,10 @@ pub enum WalRecord {
     FenceEpoch {
         epoch: Epoch,
     },
+    TopUpCapability {
+        capability_id: CapabilityId,
+        amount: AmountMicros,
+    },
 }
 
 pub struct Wal {
@@ -110,6 +114,12 @@ fn apply_record(state: &mut ShardState, record: &WalRecord) -> Result<(), ShardE
         }
         WalRecord::FenceEpoch { epoch } => {
             state.fence_epoch(*epoch);
+        }
+        WalRecord::TopUpCapability {
+            capability_id,
+            amount,
+        } => {
+            state.top_up(*capability_id, *amount)?;
         }
     }
     Ok(())

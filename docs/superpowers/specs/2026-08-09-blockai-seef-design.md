@@ -415,15 +415,17 @@ Every scenario must have a mathematically predictable outcome.
 - Persistent QUIC dataplane for PAY (no 0-RTT PAY)
 - Invariant property tests + partition/replay suites
 
-### 10.2 Deferred (designed-in)
+### 10.2 Deferred (designed-in) — lab status
 
-- AF_XDP/DPDK production dataplane
-- Multipath QUIC / packet racing
-- Full PQ dual-sign everywhere (land agility + at least one PQ path first)
-- Production HSM 3-of-5 operations
-- Enforced hardware attestation (stub → real)
-- FastPay regional middle tier
-- Mainnet economics / governance UI
+| Item | Lab status |
+|---|---|
+| AF_XDP/DPDK production dataplane | Interfaces + backend select (Plans 9/13); privileged drivers still external |
+| Multipath QUIC / packet racing | App-level race (Plan 9); IETF MP-QUIC wire still external |
+| Full PQ dual-sign everywhere | Hybrid Ed25519+ML-DSA on long-lived artifacts (Plan 10); BFT votes stay classical |
+| Production HSM 3-of-5 operations | SoftHsm + ceremony transcript (Plans 9/13); vendor PKCS#11 still external |
+| Enforced hardware attestation | Fail-closed + PCR-shaped quotes (Plans 9/13); real TPM still external |
+| FastPay regional middle tier | Landed (Plan 12) |
+| Mainnet economics / governance UI | On-chain economics + stake governance + `econ_gov_sim` ops CLI (Plan 13); web UI still external |
 
 ### 10.3 v1 success criteria
 

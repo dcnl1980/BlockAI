@@ -16,6 +16,10 @@ pub struct EdgeAcceptance {
     pub tx_id: [u8; 32],
     pub edge_pubkey: [u8; 32],
     pub edge_signature: Vec<u8>,
+    #[serde(default)]
+    pub edge_pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub edge_pq_signature: Vec<u8>,
 }
 
 /// Service execution receipt (S).
@@ -26,6 +30,10 @@ pub struct ServiceReceipt {
     pub actual_amount: AmountMicros,
     pub service_pubkey: [u8; 32],
     pub service_signature: Vec<u8>,
+    #[serde(default)]
+    pub service_pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub service_pq_signature: Vec<u8>,
 }
 
 /// Full three-party payment proof.

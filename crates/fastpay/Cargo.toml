@@ -1,0 +1,16 @@
+[package]
+name = "blockai-fastpay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+blockai-types = { path = "../types" }
+blockai-crypto = { path = "../crypto" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+blake3 = "1"
+
+[dev-dependencies]
+tempfile = "3"
