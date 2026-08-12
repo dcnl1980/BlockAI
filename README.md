@@ -16,12 +16,14 @@ Secure Economic Execution Fabric (SEEF) — from-scratch Rust L1 + agent micropa
 - Plan 9: `docs/superpowers/plans/2026-08-12-seef-prod-dataplane.md` (AF_XDP/DPDK interfaces, multipath, HSM)
 - Plan 10: `docs/superpowers/plans/2026-08-12-seef-pq-dual-sign.md` (full hybrid PQ dual-sign)
 - Plan 11: `docs/superpowers/plans/2026-08-12-seef-assurance.md` (assurance drills + p50 gate)
+- Plan 12: `docs/superpowers/plans/2026-08-12-seef-fastpay.md` (FastPay regional middle tier)
 - Assets design: `docs/superpowers/specs/2026-08-12-blockai-tokenized-assets-design.md`
 - Order book design: `docs/superpowers/specs/2026-08-12-blockai-order-book-design.md`
 - Compliance design: `docs/superpowers/specs/2026-08-12-blockai-asset-compliance-design.md`
 - Prod dataplane design: `docs/superpowers/specs/2026-08-12-blockai-prod-dataplane-design.md`
 - PQ dual-sign design: `docs/superpowers/specs/2026-08-12-blockai-pq-dual-sign-design.md`
 - Assurance design: `docs/superpowers/specs/2026-08-12-blockai-assurance-design.md`
+- FastPay design: `docs/superpowers/specs/2026-08-12-blockai-fastpay-design.md`
 
 ## Develop
 
@@ -39,5 +41,6 @@ cargo run -p blockai-tools --bin dataplane_sim -- --measured-hw
 cargo run -p blockai-tools --bin pq_sim -- --amount 10
 cargo test -p blockai-shard --test assurance_drills
 cargo run -p blockai-tools --bin assurance_sim --release -- --pays 50
+cargo run -p blockai-tools --bin fastpay_sim -- --reallocate 15 --topup 5
 cargo bench -p blockai-shard --bench pay_authorize
 ```

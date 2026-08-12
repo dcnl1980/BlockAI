@@ -289,6 +289,24 @@ impl ShardEngine {
         inner.state.remaining(capability_id)
     }
 
+    /// Apply a FastPay capability top-up (caller must have verified the certificate).
+    pub async fn top_up_capability(
+        &self,
+        capability_id: CapabilityId,
+        amount: AmountMicros,
+    ) -> Result<(), ShardError> {
+        let mut inner = self.inner.lock().await;
+        if !inner.alive {
+            return Err(ShardError::ValidatorKilled);
+        }
+        inner.wal.append(&WalRecord::TopUpCapability {
+            capability_id,
+            amount,
+        })?;
+        inner.state.top_up(capability_id, amount)?;
+        Ok(())
+    }
+
     pub async fn is_consumed(
         &self,
         capability_id: CapabilityId,

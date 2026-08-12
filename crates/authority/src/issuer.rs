@@ -124,6 +124,85 @@ impl Authority {
         Ok(())
     }
 
+    pub fn shard_allowance(
+        &self,
+        account: AccountId,
+        shard: &ShardId,
+    ) -> Result<AmountMicros, AuthorityError> {
+        let float = self
+            .accounts
+            .get(&account)
+            .ok_or(AuthorityError::UnknownAccount)?;
+        Ok(float
+            .shard_allowances
+            .get(shard)
+            .copied()
+            .unwrap_or(AmountMicros(0)))
+    }
+
+    pub fn reserve(&self, account: AccountId) -> Result<AmountMicros, AuthorityError> {
+        self.accounts
+            .get(&account)
+            .map(|f| f.reserve)
+            .ok_or(AuthorityError::UnknownAccount)
+    }
+
+    /// Move unused shard allowance between shards (FastPay reallocate apply).
+    pub fn reallocate(
+        &mut self,
+        account: AccountId,
+        from_shard: ShardId,
+        to_shard: ShardId,
+        amount: AmountMicros,
+    ) -> Result<(), AuthorityError> {
+        if from_shard == to_shard || amount.0 == 0 {
+            return Err(AuthorityError::InsufficientShardAllowance);
+        }
+        let float = self
+            .accounts
+            .get_mut(&account)
+            .ok_or(AuthorityError::UnknownAccount)?;
+        let from = float
+            .shard_allowances
+            .get_mut(&from_shard)
+            .ok_or(AuthorityError::UnknownShardAllocation)?;
+        if from.0 < amount.0 {
+            return Err(AuthorityError::InsufficientShardAllowance);
+        }
+        from.0 -= amount.0;
+        let entry = float
+            .shard_allowances
+            .entry(to_shard)
+            .or_insert(AmountMicros(0));
+        entry.0 += amount.0;
+        Ok(())
+    }
+
+    /// Debit unused shard allowance to fund a live capability top-up.
+    pub fn debit_for_top_up(
+        &mut self,
+        account: AccountId,
+        shard: ShardId,
+        amount: AmountMicros,
+    ) -> Result<(), AuthorityError> {
+        if amount.0 == 0 {
+            return Err(AuthorityError::InsufficientShardAllowance);
+        }
+        let float = self
+            .accounts
+            .get_mut(&account)
+            .ok_or(AuthorityError::UnknownAccount)?;
+        let allowance = float
+            .shard_allowances
+            .get_mut(&shard)
+            .ok_or(AuthorityError::UnknownShardAllocation)?;
+        if allowance.0 < amount.0 {
+            return Err(AuthorityError::InsufficientShardAllowance);
+        }
+        allowance.0 -= amount.0;
+        Ok(())
+    }
+
     pub fn issue_capability(
         &mut self,
         req: IssueRequest,

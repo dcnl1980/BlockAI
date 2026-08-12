@@ -13,6 +13,7 @@ members = [
     "crates/net",
     "crates/dataplane",
     "crates/hsm",
+    "crates/fastpay",
     "crates/tools",
 ]
 

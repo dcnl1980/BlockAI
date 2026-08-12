@@ -40,6 +40,13 @@ pub enum L1Tx {
         shard_id: ShardId,
         amount: AmountMicros,
     },
+    /// FastPay regional settle: move shard outstanding between shards (conserves supply).
+    ReallocateShardOutstanding {
+        account: AccountId,
+        from_shard: ShardId,
+        to_shard: ShardId,
+        amount: AmountMicros,
+    },
     /// Apply a witnessed shard checkpoint: burns `exposure` from shard outstanding allowance.
     CheckpointFinalized {
         checkpoint: WitnessedCheckpoint,

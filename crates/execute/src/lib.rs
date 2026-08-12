@@ -316,6 +316,37 @@ impl GlobalState {
                     amount.0
                 ));
             }
+            L1Tx::ReallocateShardOutstanding {
+                account,
+                from_shard,
+                to_shard,
+                amount,
+            } => {
+                if from_shard == to_shard || amount.0 == 0 {
+                    return Err(ExecuteError::InsufficientShardAllowance);
+                }
+                let from_key = (from_shard.as_str().to_string(), *account);
+                let from = self
+                    .shard_outstanding
+                    .get_mut(&from_key)
+                    .ok_or(ExecuteError::InsufficientShardAllowance)?;
+                if from.0 < amount.0 {
+                    return Err(ExecuteError::InsufficientShardAllowance);
+                }
+                from.0 -= amount.0;
+                let to_key = (to_shard.as_str().to_string(), *account);
+                let entry = self
+                    .shard_outstanding
+                    .entry(to_key)
+                    .or_insert(AmountMicros(0));
+                entry.0 += amount.0;
+                self.events.push(format!(
+                    "ReallocateShardOutstanding {} -> {} amount={}",
+                    from_shard.as_str(),
+                    to_shard.as_str(),
+                    amount.0
+                ));
+            }
             L1Tx::CheckpointFinalized {
                 checkpoint,
                 funding_account,
