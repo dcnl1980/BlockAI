@@ -1,3 +1,7 @@
+pub mod attestor;
+
+pub use attestor::{Attestor, AttestorError, HardwareAttestor, SoftwareAttestor};
+
 use blockai_crypto::{verifying_key_from_bytes, Keypair};
 use blockai_types::encode_cbor;
 use ed25519_dalek::{Signature, Signer, Verifier};

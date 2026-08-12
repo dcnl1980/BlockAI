@@ -18,6 +18,7 @@ fn zero_rtt_pay_fail_closed() {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999,
         agent_signature: vec![0u8; 64],
+    ..Default::default()
     };
     let err = admit_frame(true, &AppFrame::Pay { pay }).unwrap_err();
     assert_eq!(err, AdmitError::ZeroRttPayForbidden);

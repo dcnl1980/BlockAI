@@ -14,4 +14,10 @@ pub struct Asset {
     pub decimals: u8,
     pub max_supply: AssetUnits,
     pub minted: AssetUnits,
+    /// When true, mint/transfer/trade/orders for this asset fail closed.
+    #[serde(default)]
+    pub frozen: bool,
+    /// When true, only allowlisted accounts may participate.
+    #[serde(default)]
+    pub allowlist_enabled: bool,
 }

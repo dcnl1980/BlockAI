@@ -1,6 +1,8 @@
+mod market;
+
 use blockai_types::{
     Account, AccountId, AgentId, AmountMicros, Asset, AssetId, AssetUnits, Dispute, DisputeStatus,
-    L1Tx, WitnessedCheckpoint,
+    L1Tx, Order, OrderId, TradeFill, WitnessedCheckpoint,
 };
 use blockai_wasm::{code_hash, WasmRuntime};
 use blockai_witness::verify_witnessed;
@@ -62,6 +64,20 @@ pub enum ExecuteError {
     AssetConservationBroken,
     #[error("self trade forbidden")]
     SelfTrade,
+    #[error("order already exists")]
+    OrderExists,
+    #[error("unknown order")]
+    UnknownOrder,
+    #[error("order not open")]
+    OrderNotOpen,
+    #[error("not order owner")]
+    NotOrderOwner,
+    #[error("escrow overflow")]
+    EscrowOverflow,
+    #[error("asset frozen")]
+    AssetFrozen,
+    #[error("account not allowlisted for asset")]
+    NotAllowlisted,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,8 +101,17 @@ pub struct GlobalState {
     pub disputes: HashMap<[u8; 32], Dispute>,
     pub assets: HashMap<AssetId, Asset>,
     pub asset_symbols: HashMap<String, AssetId>,
+    /// Allowlisted (asset, account) pairs when asset.allowlist_enabled.
+    pub asset_allowlist: HashMap<(AssetId, AccountId), ()>,
     /// Holdings keyed by (account, asset_id).
     pub holdings: HashMap<(AccountId, AssetId), AssetUnits>,
+    pub orders: HashMap<OrderId, Order>,
+    /// EURC micros locked for buy orders.
+    pub order_cash_escrow: HashMap<OrderId, u128>,
+    /// Asset units locked for sell orders.
+    pub order_asset_escrow: HashMap<OrderId, (AssetId, AssetUnits)>,
+    pub fills: Vec<TradeFill>,
+    pub next_order_seq: u64,
     pub last_call_result: Option<i32>,
     pub min_witnesses: usize,
     pub default_fuel: u64,
@@ -114,7 +139,7 @@ impl GlobalState {
             .filter(|d| d.status == DisputeStatus::Open)
             .map(|d| d.bond.0)
             .sum();
-        AmountMicros(account_locked + dispute_bonds)
+        AmountMicros(account_locked + dispute_bonds + self.order_cash_escrow_sum().0)
     }
 
     pub fn available_sum(&self) -> AmountMicros {
@@ -145,20 +170,21 @@ impl GlobalState {
 
     pub fn check_asset_conservation(&self) -> Result<(), ExecuteError> {
         for (asset_id, asset) in &self.assets {
-            let sum: AssetUnits = self
+            let held: AssetUnits = self
                 .holdings
                 .iter()
                 .filter(|((_, id), _)| id == asset_id)
                 .map(|(_, u)| *u)
                 .sum();
-            if sum != asset.minted || asset.minted > asset.max_supply {
+            let escrowed = self.asset_escrow_units(*asset_id);
+            if held + escrowed != asset.minted || asset.minted > asset.max_supply {
                 return Err(ExecuteError::AssetConservationBroken);
             }
         }
         Ok(())
     }
 
-    fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
+    pub(crate) fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
         let acc = self
             .accounts
             .get(account)
@@ -169,12 +195,45 @@ impl GlobalState {
         Ok(())
     }
 
-    fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
+    pub(crate) fn ensure_asset_active(&self, asset_id: &AssetId) -> Result<(), ExecuteError> {
+        let asset = self
+            .assets
+            .get(asset_id)
+            .ok_or(ExecuteError::UnknownAsset)?;
+        if asset.frozen {
+            return Err(ExecuteError::AssetFrozen);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_asset_participant(
+        &self,
+        asset_id: &AssetId,
+        account: &AccountId,
+    ) -> Result<(), ExecuteError> {
+        let asset = self
+            .assets
+            .get(asset_id)
+            .ok_or(ExecuteError::UnknownAsset)?;
+        if asset.allowlist_enabled && !self.asset_allowlist.contains_key(&(*asset_id, *account)) {
+            return Err(ExecuteError::NotAllowlisted);
+        }
+        Ok(())
+    }
+
+    fn ensure_issuer(asset: &Asset, issuer: &AccountId) -> Result<(), ExecuteError> {
+        if asset.issuer != *issuer {
+            return Err(ExecuteError::NotAssetIssuer);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
         let entry = self.holdings.entry((account, asset_id)).or_insert(0);
         *entry = entry.saturating_add(units);
     }
 
-    fn debit_holding(
+    pub(crate) fn debit_holding(
         &mut self,
         account: AccountId,
         asset_id: AssetId,
@@ -498,6 +557,8 @@ impl GlobalState {
                         decimals: *decimals,
                         max_supply: *max_supply,
                         minted: 0,
+                        frozen: false,
+                        allowlist_enabled: false,
                     },
                 );
                 self.asset_symbols.insert(sym.clone(), *asset_id);
@@ -515,14 +576,14 @@ impl GlobalState {
                 }
                 self.ensure_active(issuer)?;
                 self.ensure_active(to)?;
+                self.ensure_asset_active(asset_id)?;
                 let asset = self
                     .assets
                     .get(asset_id)
                     .ok_or(ExecuteError::UnknownAsset)?
                     .clone();
-                if asset.issuer != *issuer {
-                    return Err(ExecuteError::NotAssetIssuer);
-                }
+                Self::ensure_issuer(&asset, issuer)?;
+                self.ensure_asset_participant(asset_id, to)?;
                 if asset.minted.saturating_add(*units) > asset.max_supply {
                     return Err(ExecuteError::ExceedsMaxSupply);
                 }
@@ -544,11 +605,11 @@ impl GlobalState {
                 if *units == 0 {
                     return Err(ExecuteError::ZeroAssetAmount);
                 }
-                if !self.assets.contains_key(asset_id) {
-                    return Err(ExecuteError::UnknownAsset);
-                }
+                self.ensure_asset_active(asset_id)?;
                 self.ensure_active(from)?;
                 self.ensure_active(to)?;
+                self.ensure_asset_participant(asset_id, from)?;
+                self.ensure_asset_participant(asset_id, to)?;
                 self.debit_holding(*from, *asset_id, *units)?;
                 self.credit_holding(*to, *asset_id, *units);
                 self.events.push(format!(
@@ -569,11 +630,11 @@ impl GlobalState {
                 if buyer == seller {
                     return Err(ExecuteError::SelfTrade);
                 }
-                if !self.assets.contains_key(asset_id) {
-                    return Err(ExecuteError::UnknownAsset);
-                }
+                self.ensure_asset_active(asset_id)?;
                 self.ensure_active(buyer)?;
                 self.ensure_active(seller)?;
+                self.ensure_asset_participant(asset_id, buyer)?;
+                self.ensure_asset_participant(asset_id, seller)?;
                 {
                     let buyer_acc = self.accounts.get(buyer).unwrap();
                     if buyer_acc.balance_available.0 < price_total.0 {
@@ -597,6 +658,74 @@ impl GlobalState {
                 self.events.push(format!(
                     "SpotTrade asset={} units={} price={} buyer={} seller={}",
                     asset_id.0[0], asset_units, price_total.0, buyer.0[0], seller.0[0]
+                ));
+            }
+            L1Tx::PlaceLimitOrder {
+                order_id,
+                asset_id,
+                trader,
+                side,
+                price,
+                units,
+            } => {
+                self.place_limit_order(*order_id, *asset_id, *trader, *side, *price, *units)?;
+            }
+            L1Tx::CancelOrder { order_id, trader } => {
+                self.cancel_order(*order_id, *trader)?;
+            }
+            L1Tx::SetAssetFrozen {
+                asset_id,
+                issuer,
+                frozen,
+            } => {
+                self.ensure_active(issuer)?;
+                let asset = self
+                    .assets
+                    .get_mut(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?;
+                Self::ensure_issuer(asset, issuer)?;
+                asset.frozen = *frozen;
+                self.events
+                    .push(format!("SetAssetFrozen {} frozen={}", asset_id.0[0], frozen));
+            }
+            L1Tx::SetAssetAllowlistEnabled {
+                asset_id,
+                issuer,
+                enabled,
+            } => {
+                self.ensure_active(issuer)?;
+                let asset = self
+                    .assets
+                    .get_mut(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?;
+                Self::ensure_issuer(asset, issuer)?;
+                asset.allowlist_enabled = *enabled;
+                self.events.push(format!(
+                    "SetAssetAllowlistEnabled {} enabled={}",
+                    asset_id.0[0], enabled
+                ));
+            }
+            L1Tx::SetAssetAllowlistMember {
+                asset_id,
+                issuer,
+                account,
+                allowed,
+            } => {
+                self.ensure_active(issuer)?;
+                let asset = self
+                    .assets
+                    .get(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?
+                    .clone();
+                Self::ensure_issuer(&asset, issuer)?;
+                if *allowed {
+                    self.asset_allowlist.insert((*asset_id, *account), ());
+                } else {
+                    self.asset_allowlist.remove(&(*asset_id, *account));
+                }
+                self.events.push(format!(
+                    "SetAssetAllowlistMember asset={} account={} allowed={}",
+                    asset_id.0[0], account.0[0], allowed
                 ));
             }
         }
