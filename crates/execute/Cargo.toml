@@ -11,6 +11,7 @@ blockai-shard = { path = "../shard" }
 blockai-wasm = { path = "../wasm" }
 thiserror = { workspace = true }
 serde = { workspace = true }
+blake3 = "1"
 
 [dev-dependencies]
 blockai-crypto = { path = "../crypto" }
