@@ -302,6 +302,7 @@ dependencies = [
 name = "blockai-tools"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "blockai-authority",
  "blockai-consensus",
  "blockai-crypto",

@@ -1,4 +1,5 @@
 pub mod account;
+pub mod asset;
 pub mod capability;
 pub mod checkpoint;
 pub mod errors;
@@ -8,6 +9,7 @@ pub mod pay;
 pub mod receipt;
 
 pub use account::*;
+pub use asset::*;
 pub use capability::*;
 pub use checkpoint::*;
 pub use errors::TypesError;

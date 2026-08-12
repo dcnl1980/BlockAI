@@ -10,6 +10,8 @@ Secure Economic Execution Fabric (SEEF) — from-scratch Rust L1 + agent micropa
 - Plan 3: `docs/superpowers/plans/2026-08-09-seef-global-l1.md`
 - Plan 4: `docs/superpowers/plans/2026-08-09-seef-wasm-registry.md`
 - Plan 5: `docs/superpowers/plans/2026-08-09-seef-quic-attest-pq.md`
+- Plan 6: `docs/superpowers/plans/2026-08-12-seef-tokenized-assets.md` (tokenized assets + spot trade)
+- Assets design: `docs/superpowers/specs/2026-08-12-blockai-tokenized-assets-design.md`
 
 ## Develop
 
@@ -21,5 +23,6 @@ cargo run -p blockai-tools --bin l1_sim -- --exposure 10
 cargo run -p blockai-tools --bin wasm_sim -- --a 2 --b 40
 cargo run -p blockai-tools --bin quic_sim -- --amount 1
 cargo run -p blockai-tools --bin seef_sim -- --amount 10
+cargo run -p blockai-tools --bin trade_sim -- --symbol ACME --mint 100 --units 10 --price 25000
 cargo bench -p blockai-shard --bench pay_authorize
 ```

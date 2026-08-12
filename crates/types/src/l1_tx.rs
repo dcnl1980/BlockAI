@@ -1,4 +1,6 @@
-use crate::{AccountId, AgentId, AmountMicros, Epoch, ShardId, WitnessedCheckpoint};
+use crate::{
+    AccountId, AgentId, AmountMicros, AssetId, AssetUnits, Epoch, ShardId, WitnessedCheckpoint,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +89,36 @@ pub enum L1Tx {
     ResolveDispute {
         id: [u8; 32],
         for_plaintiff: bool,
+    },
+    /// Register a tokenized ledger instrument (not a regulated security by itself).
+    RegisterAsset {
+        asset_id: AssetId,
+        issuer: AccountId,
+        symbol: String,
+        name: String,
+        decimals: u8,
+        max_supply: AssetUnits,
+    },
+    MintAsset {
+        asset_id: AssetId,
+        /// Must equal the registered asset issuer.
+        issuer: AccountId,
+        to: AccountId,
+        units: AssetUnits,
+    },
+    TransferAsset {
+        asset_id: AssetId,
+        from: AccountId,
+        to: AccountId,
+        units: AssetUnits,
+    },
+    /// Atomic spot: `asset_units` seller→buyer and `price_total` EURC buyer→seller.
+    SpotTrade {
+        asset_id: AssetId,
+        buyer: AccountId,
+        seller: AccountId,
+        asset_units: AssetUnits,
+        price_total: AmountMicros,
     },
 }
 

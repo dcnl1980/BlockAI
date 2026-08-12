@@ -37,6 +37,9 @@ pub struct AgentId(pub [u8; 32]);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CapabilityId(pub [u8; 32]);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AssetId(pub [u8; 32]);
+
 pub fn parse_currency(s: &str) -> Result<String, TypesError> {
     if s == "EURC" {
         Ok(s.to_string())

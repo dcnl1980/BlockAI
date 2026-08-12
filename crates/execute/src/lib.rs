@@ -1,5 +1,6 @@
 use blockai_types::{
-    Account, AccountId, AgentId, AmountMicros, Dispute, DisputeStatus, L1Tx, WitnessedCheckpoint,
+    Account, AccountId, AgentId, AmountMicros, Asset, AssetId, AssetUnits, Dispute, DisputeStatus,
+    L1Tx, WitnessedCheckpoint,
 };
 use blockai_wasm::{code_hash, WasmRuntime};
 use blockai_witness::verify_witnessed;
@@ -43,6 +44,24 @@ pub enum ExecuteError {
     DisputeNotOpen,
     #[error("dispute exists")]
     DisputeExists,
+    #[error("asset already registered")]
+    AssetExists,
+    #[error("unknown asset")]
+    UnknownAsset,
+    #[error("asset symbol taken")]
+    AssetSymbolTaken,
+    #[error("not asset issuer")]
+    NotAssetIssuer,
+    #[error("exceeds max supply")]
+    ExceedsMaxSupply,
+    #[error("insufficient asset units")]
+    InsufficientAssetUnits,
+    #[error("zero asset amount")]
+    ZeroAssetAmount,
+    #[error("asset conservation broken")]
+    AssetConservationBroken,
+    #[error("self trade forbidden")]
+    SelfTrade,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +83,10 @@ pub struct GlobalState {
     pub contracts: HashMap<[u8; 32], Vec<u8>>,
     pub contract_deployers: HashMap<[u8; 32], AccountId>,
     pub disputes: HashMap<[u8; 32], Dispute>,
+    pub assets: HashMap<AssetId, Asset>,
+    pub asset_symbols: HashMap<String, AssetId>,
+    /// Holdings keyed by (account, asset_id).
+    pub holdings: HashMap<(AccountId, AssetId), AssetUnits>,
     pub last_call_result: Option<i32>,
     pub min_witnesses: usize,
     pub default_fuel: u64,
@@ -108,6 +131,64 @@ impl GlobalState {
             + self.locked_sum().0;
         if lhs != self.total_supply.0 {
             return Err(ExecuteError::ConservationBroken);
+        }
+        self.check_asset_conservation()?;
+        Ok(())
+    }
+
+    pub fn holding(&self, account: AccountId, asset_id: AssetId) -> AssetUnits {
+        self.holdings
+            .get(&(account, asset_id))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub fn check_asset_conservation(&self) -> Result<(), ExecuteError> {
+        for (asset_id, asset) in &self.assets {
+            let sum: AssetUnits = self
+                .holdings
+                .iter()
+                .filter(|((_, id), _)| id == asset_id)
+                .map(|(_, u)| *u)
+                .sum();
+            if sum != asset.minted || asset.minted > asset.max_supply {
+                return Err(ExecuteError::AssetConservationBroken);
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_active(&self, account: &AccountId) -> Result<(), ExecuteError> {
+        let acc = self
+            .accounts
+            .get(account)
+            .ok_or(ExecuteError::UnknownAccount)?;
+        if acc.suspended {
+            return Err(ExecuteError::Suspended);
+        }
+        Ok(())
+    }
+
+    fn credit_holding(&mut self, account: AccountId, asset_id: AssetId, units: AssetUnits) {
+        let entry = self.holdings.entry((account, asset_id)).or_insert(0);
+        *entry = entry.saturating_add(units);
+    }
+
+    fn debit_holding(
+        &mut self,
+        account: AccountId,
+        asset_id: AssetId,
+        units: AssetUnits,
+    ) -> Result<(), ExecuteError> {
+        let bal = self.holding(account, asset_id);
+        if bal < units {
+            return Err(ExecuteError::InsufficientAssetUnits);
+        }
+        let next = bal - units;
+        if next == 0 {
+            self.holdings.remove(&(account, asset_id));
+        } else {
+            self.holdings.insert((account, asset_id), next);
         }
         Ok(())
     }
@@ -386,6 +467,136 @@ impl GlobalState {
                 self.events.push(format!(
                     "ResolveDispute {} for_plaintiff={}",
                     id[0], for_plaintiff
+                ));
+            }
+            L1Tx::RegisterAsset {
+                asset_id,
+                issuer,
+                symbol,
+                name,
+                decimals,
+                max_supply,
+            } => {
+                self.ensure_active(issuer)?;
+                if self.assets.contains_key(asset_id) {
+                    return Err(ExecuteError::AssetExists);
+                }
+                let sym = symbol.to_ascii_uppercase();
+                if sym.is_empty() || self.asset_symbols.contains_key(&sym) {
+                    return Err(ExecuteError::AssetSymbolTaken);
+                }
+                if *max_supply == 0 {
+                    return Err(ExecuteError::ZeroAssetAmount);
+                }
+                self.assets.insert(
+                    *asset_id,
+                    Asset {
+                        asset_id: *asset_id,
+                        symbol: sym.clone(),
+                        name: name.clone(),
+                        issuer: *issuer,
+                        decimals: *decimals,
+                        max_supply: *max_supply,
+                        minted: 0,
+                    },
+                );
+                self.asset_symbols.insert(sym.clone(), *asset_id);
+                self.events
+                    .push(format!("RegisterAsset {} max={}", sym, max_supply));
+            }
+            L1Tx::MintAsset {
+                asset_id,
+                issuer,
+                to,
+                units,
+            } => {
+                if *units == 0 {
+                    return Err(ExecuteError::ZeroAssetAmount);
+                }
+                self.ensure_active(issuer)?;
+                self.ensure_active(to)?;
+                let asset = self
+                    .assets
+                    .get(asset_id)
+                    .ok_or(ExecuteError::UnknownAsset)?
+                    .clone();
+                if asset.issuer != *issuer {
+                    return Err(ExecuteError::NotAssetIssuer);
+                }
+                if asset.minted.saturating_add(*units) > asset.max_supply {
+                    return Err(ExecuteError::ExceedsMaxSupply);
+                }
+                {
+                    let asset_mut = self.assets.get_mut(asset_id).unwrap();
+                    asset_mut.minted += *units;
+                }
+                self.credit_holding(*to, *asset_id, *units);
+                let symbol = self.assets.get(asset_id).unwrap().symbol.clone();
+                self.events
+                    .push(format!("MintAsset {} -> {} units={}", symbol, to.0[0], units));
+            }
+            L1Tx::TransferAsset {
+                asset_id,
+                from,
+                to,
+                units,
+            } => {
+                if *units == 0 {
+                    return Err(ExecuteError::ZeroAssetAmount);
+                }
+                if !self.assets.contains_key(asset_id) {
+                    return Err(ExecuteError::UnknownAsset);
+                }
+                self.ensure_active(from)?;
+                self.ensure_active(to)?;
+                self.debit_holding(*from, *asset_id, *units)?;
+                self.credit_holding(*to, *asset_id, *units);
+                self.events.push(format!(
+                    "TransferAsset {} units={} from={} to={}",
+                    asset_id.0[0], units, from.0[0], to.0[0]
+                ));
+            }
+            L1Tx::SpotTrade {
+                asset_id,
+                buyer,
+                seller,
+                asset_units,
+                price_total,
+            } => {
+                if *asset_units == 0 {
+                    return Err(ExecuteError::ZeroAssetAmount);
+                }
+                if buyer == seller {
+                    return Err(ExecuteError::SelfTrade);
+                }
+                if !self.assets.contains_key(asset_id) {
+                    return Err(ExecuteError::UnknownAsset);
+                }
+                self.ensure_active(buyer)?;
+                self.ensure_active(seller)?;
+                {
+                    let buyer_acc = self.accounts.get(buyer).unwrap();
+                    if buyer_acc.balance_available.0 < price_total.0 {
+                        return Err(ExecuteError::InsufficientAvailable);
+                    }
+                }
+                if self.holding(*seller, *asset_id) < *asset_units {
+                    return Err(ExecuteError::InsufficientAssetUnits);
+                }
+                // Atomic: EURC then units (both fail-closed already checked).
+                {
+                    let buyer_acc = self.accounts.get_mut(buyer).unwrap();
+                    buyer_acc.balance_available.0 -= price_total.0;
+                }
+                {
+                    let seller_acc = self.accounts.get_mut(seller).unwrap();
+                    seller_acc.balance_available.0 += price_total.0;
+                }
+                self.debit_holding(*seller, *asset_id, *asset_units)?;
+                self.credit_holding(*buyer, *asset_id, *asset_units);
+                self.events.push(format!(
+                    "SpotTrade asset={} units={} price={} buyer={} seller={}",
+                    asset_id.0[0], asset_units, price_total.0, buyer.0[0], seller.0[0]
                 ));
             }
         }
