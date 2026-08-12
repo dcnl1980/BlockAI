@@ -253,6 +253,7 @@ dependencies = [
 name = "blockai-execute"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "blockai-crypto",
  "blockai-shard",
  "blockai-types",
