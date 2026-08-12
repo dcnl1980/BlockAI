@@ -2,7 +2,10 @@ use crate::bft::{quorum_threshold, BftMessage, PayCommitBody};
 use crate::state::ShardState;
 use crate::wal::{Wal, WalRecord};
 use crate::ShardError;
-use blockai_crypto::{verify_capability, verify_pay, verifying_key_from_bytes, Keypair};
+use blockai_crypto::{
+    verify_capability, verify_pay, verify_pay_hybrid, verifying_key_from_bytes, AlgorithmId,
+    Keypair,
+};
 use blockai_types::{tx_id, Epoch, EpochState, Pay, ShardId, SpendCapability};
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use std::collections::HashMap;
@@ -426,7 +429,18 @@ impl ShardEngine {
         }
         let agent_vk =
             verifying_key_from_bytes(&pay.agent_id.0).map_err(|_| ShardError::BadSignature)?;
-        verify_pay(&agent_vk, pay).map_err(|_| ShardError::BadSignature)?;
+        let alg = AlgorithmId::from_u16(pay.agent_alg).unwrap_or(AlgorithmId::Ed25519);
+        match alg {
+            AlgorithmId::Ed25519 => {
+                verify_pay(&agent_vk, pay).map_err(|_| ShardError::BadSignature)?;
+            }
+            AlgorithmId::HybridEd25519MlDsa65 => {
+                verify_pay_hybrid(pay).map_err(|_| ShardError::BadSignature)?;
+            }
+            AlgorithmId::MlDsa65 => {
+                return Err(ShardError::BadSignature);
+            }
+        }
 
         match inner.state.epoch_state(pay.epoch) {
             EpochState::Fenced => return Err(ShardError::EpochFenced { epoch: pay.epoch }),

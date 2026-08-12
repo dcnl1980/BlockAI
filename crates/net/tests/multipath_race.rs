@@ -43,6 +43,7 @@ async fn race_connect_picks_first_live_path() {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999,
         agent_signature: vec![0u8; 64],
+    ..Default::default()
     };
     send_frame(&mut send, &AppFrame::Pay { pay }).await.unwrap();
     send.finish().unwrap();

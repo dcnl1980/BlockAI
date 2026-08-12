@@ -20,6 +20,7 @@ fn pay_frame(cap: [u8; 32]) -> Vec<u8> {
         pricing_schedule_version: 1,
         expiry_unix_ms: 9_999,
         agent_signature: vec![0u8; 64],
+        ..Default::default()
     };
     encode_frame(&AppFrame::Pay { pay }).unwrap()
 }

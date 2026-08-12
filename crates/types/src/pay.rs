@@ -16,6 +16,41 @@ pub struct Pay {
     pub pricing_schedule_version: u64,
     pub expiry_unix_ms: u64,
     pub agent_signature: Vec<u8>,
+    /// See `blockai_crypto::AlgorithmId` (`1` = Ed25519, `3` = hybrid Ed25519+ML-DSA-65).
+    #[serde(default = "default_agent_alg")]
+    pub agent_alg: u16,
+    /// ML-DSA-65 verifying key when `agent_alg` is hybrid; empty otherwise.
+    #[serde(default)]
+    pub agent_pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub agent_pq_signature: Vec<u8>,
+}
+
+fn default_agent_alg() -> u16 {
+    1 // Ed25519
+}
+
+impl Default for Pay {
+    fn default() -> Self {
+        Self {
+            capability_id: CapabilityId([0u8; 32]),
+            epoch: Epoch(0),
+            sequence: Sequence(0),
+            agent_id: AgentId([0u8; 32]),
+            service_id: String::new(),
+            amount: AmountMicros(0),
+            currency: String::new(),
+            request_hash: [0u8; 32],
+            price_quote_hash: [0u8; 32],
+            max_amount: AmountMicros(0),
+            pricing_schedule_version: 0,
+            expiry_unix_ms: 0,
+            agent_signature: vec![],
+            agent_alg: default_agent_alg(),
+            agent_pq_pubkey: vec![],
+            agent_pq_signature: vec![],
+        }
+    }
 }
 
 /// Canonical TX_ID = BLAKE3(capability_id || epoch || sequence || request_hash)

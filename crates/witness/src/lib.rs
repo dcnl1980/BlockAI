@@ -1,4 +1,4 @@
-use blockai_crypto::Keypair;
+use blockai_crypto::{verify_witness_hybrid, Keypair, PqKeypair};
 use blockai_shard::verify_signed_checkpoint;
 use blockai_types::{
     encode_cbor, SignedCheckpoint, WitnessSig, WitnessedCheckpoint,
@@ -26,16 +26,29 @@ pub enum WitnessError {
 
 pub struct Witness {
     key: Keypair,
+    pq: Option<PqKeypair>,
 }
 
 impl Witness {
     pub fn new(key: Keypair) -> Self {
-        Self { key }
+        Self { key, pq: None }
+    }
+
+    pub fn new_hybrid(key: Keypair, pq: PqKeypair) -> Self {
+        Self { key, pq: Some(pq) }
     }
 
     pub fn generate() -> Self {
         Self {
             key: Keypair::generate(),
+            pq: None,
+        }
+    }
+
+    pub fn generate_hybrid() -> Self {
+        Self {
+            key: Keypair::generate(),
+            pq: Some(PqKeypair::generate()),
         }
     }
 
@@ -48,9 +61,15 @@ impl Witness {
         let body = witness_body(checkpoint);
         let bytes = encode_cbor(&body).map_err(|_| WitnessError::Cbor)?;
         let signature = self.key.signing_key().sign(&bytes).to_bytes().to_vec();
+        if let Some(pq) = &self.pq {
+            return blockai_crypto::seal_witness_pq(&self.key, pq, checkpoint, signature)
+                .map_err(|_| WitnessError::BadWitnessSignature);
+        }
         Ok(WitnessSig {
             witness_pubkey: self.pubkey(),
             signature,
+            witness_pq_pubkey: vec![],
+            witness_pq_signature: vec![],
         })
     }
 }
@@ -90,7 +109,11 @@ pub fn verify_witness_sig(
         .try_into()
         .map_err(|_| WitnessError::BadWitnessSignature)?;
     vk.verify(&bytes, &Signature::from_bytes(&sig_bytes))
-        .map_err(|_| WitnessError::BadWitnessSignature)
+        .map_err(|_| WitnessError::BadWitnessSignature)?;
+    if !sig.witness_pq_pubkey.is_empty() || !sig.witness_pq_signature.is_empty() {
+        verify_witness_hybrid(checkpoint, sig).map_err(|_| WitnessError::BadWitnessSignature)?;
+    }
+    Ok(())
 }
 
 pub fn verify_witnessed(

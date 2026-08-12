@@ -1,4 +1,4 @@
-use blockai_crypto::Keypair;
+use blockai_crypto::{dual_sign_root_op, verify_root_op_pq, Keypair, PqKeypair};
 use blockai_types::encode_cbor;
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,10 @@ pub struct ShareSig {
     pub share_id: u8,
     pub pubkey: [u8; 32],
     pub signature: Vec<u8>,
+    #[serde(default)]
+    pub pq_pubkey: Vec<u8>,
+    #[serde(default)]
+    pub pq_signature: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,12 +62,21 @@ fn op_bytes(op: &RootOp) -> Result<Vec<u8>, HsmError> {
 /// Software simulation of an offline 3-of-5 root HSM ceremony.
 pub struct SoftHsm3of5 {
     shares: Vec<Keypair>,
+    pq_shares: Option<Vec<PqKeypair>>,
 }
 
 impl SoftHsm3of5 {
     pub fn generate() -> Self {
         Self {
             shares: (0..HSM_SHARES).map(|_| Keypair::generate()).collect(),
+            pq_shares: None,
+        }
+    }
+
+    pub fn generate_hybrid() -> Self {
+        Self {
+            shares: (0..HSM_SHARES).map(|_| Keypair::generate()).collect(),
+            pq_shares: Some((0..HSM_SHARES).map(|_| PqKeypair::generate()).collect()),
         }
     }
 
@@ -89,10 +102,22 @@ impl SoftHsm3of5 {
             }
             let idx = id as usize;
             let kp = self.shares.get(idx).ok_or(HsmError::UnknownShare)?;
+            let (signature, pq_pubkey, pq_signature) = if let Some(pq_shares) = &self.pq_shares {
+                let pq = pq_shares.get(idx).ok_or(HsmError::UnknownShare)?;
+                dual_sign_root_op(kp, pq, &bytes, op).map_err(|_| HsmError::BadShareSignature)?
+            } else {
+                (
+                    kp.signing_key().sign(&bytes).to_bytes().to_vec(),
+                    vec![],
+                    vec![],
+                )
+            };
             out.push(ShareSig {
                 share_id: id,
                 pubkey: kp.verifying_key_bytes(),
-                signature: kp.signing_key().sign(&bytes).to_bytes().to_vec(),
+                signature,
+                pq_pubkey,
+                pq_signature,
             });
         }
         Ok(ThresholdSignature {
@@ -131,6 +156,13 @@ impl SoftHsm3of5 {
                 .map_err(|_| HsmError::BadShareSignature)?;
             vk.verify(&bytes, &Signature::from_bytes(&sig_bytes))
                 .map_err(|_| HsmError::BadShareSignature)?;
+            if self.pq_shares.is_some()
+                || !share.pq_pubkey.is_empty()
+                || !share.pq_signature.is_empty()
+            {
+                verify_root_op_pq(&share.pubkey, &share.pq_pubkey, &share.pq_signature, &sig.op)
+                    .map_err(|_| HsmError::BadShareSignature)?;
+            }
         }
         Ok(())
     }
