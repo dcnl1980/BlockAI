@@ -1,0 +1,12 @@
+[package]
+name = "blockai-dataplane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+blockai-net = { path = "../net" }
+blockai-types = { path = "../types" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+blake3 = "1"

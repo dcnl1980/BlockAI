@@ -11,6 +11,8 @@ members = [
     "crates/consensus",
     "crates/wasm",
     "crates/net",
+    "crates/dataplane",
+    "crates/hsm",
     "crates/tools",
 ]
 
