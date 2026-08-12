@@ -26,6 +26,7 @@ Secure Economic Execution Fabric (SEEF) — from-scratch Rust L1 + agent micropa
 - Assurance design: `docs/superpowers/specs/2026-08-12-blockai-assurance-design.md`
 - FastPay design: `docs/superpowers/specs/2026-08-12-blockai-fastpay-design.md`
 - Econ/gov/prod design: `docs/superpowers/specs/2026-08-12-blockai-econ-gov-prod-design.md`
+- Hardware BOM / host roles: `docs/superpowers/specs/2026-08-12-blockai-hardware-bom.md`
 
 ## Develop
 
